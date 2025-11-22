@@ -1,0 +1,18 @@
+# Python
+*.pyc
+__pycache__/
+
+# Virtual environment
+quiz_venv/
+*.venv/
+venv/
+
+# Database
+*.db
+
+# PyCharm
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
