@@ -40,15 +40,6 @@ class Question(db.Model):
 # -------------------------
 # Step 4: Routes
 # -------------------------
-@app.route('/questions/<int:question_id>', methods=['DELETE'])
-def delete_question(question_id):
-    question = Question.query.get(question_id)
-    if not question:
-        return jsonify({"error": "Question not found"}), 404
-    db.session.delete(question)
-    db.session.commit()
-    return jsonify({"message": f"Question {question_id} deleted successfully"})
-
 @app.route('/quizzes', methods=['POST'])
 def create_quiz():
     data = request.get_json()
@@ -94,19 +85,27 @@ def add_question(quiz_id):
 def submit_quiz(quiz_id):
     data = request.get_json()
     submitted_answers = data.get("answers")
+    user_id = data.get("user_id")   # added
+    if user_id is None:
+        return jsonify({"error": "User_id is required"}), 400
     if not submitted_answers or not isinstance(submitted_answers, list):
         return jsonify({"error": "Answers must be provided as a list"}), 400
 
-    questions = Question.query.filter_by(quiz_id=quiz_id).all()
+    questions = Question.query.filter_by(quiz_id=quiz_id).order_by(Question.id.asc()).all()
     if not questions:
         return jsonify({"error": "Quiz not found or has no questions"}), 404
+    if len(submitted_answers) != len(questions):
+        return jsonify({"error": "Number of answers does not match number of questions"}), 400
 
     score = 0
     for q, submitted in zip(questions, submitted_answers):
         if submitted == q.correct_answer:
             score += 1
 
-    return jsonify({"score": score, "total": len(questions)})
+    return jsonify({"user_id":user_id,
+                    "quiz_id": quiz_id,
+                    "score": score,
+                    "total": len(questions)})
 
 @app.route('/quizzes', methods=['GET'])
 def get_quizzes():
@@ -119,11 +118,25 @@ def get_quiz(quiz_id):
     if not quiz:
         return jsonify({"error": "Quiz not found"}), 404
 
-    questions = Question.query.filter_by(quiz_id=quiz_id).all()
-    questions_list = [{"id": q.id, "question": q.question, "options": json.loads(q.options), "correct_answer": q.correct_answer} for q in questions]
+    questions = Question.query.filter_by(quiz_id=quiz_id).order_by(Question.id.asc()).all()
+    questions_list = [{"id": q.id, "question": q.question,"options": json.loads(q.options)}
 
-    return jsonify({"id": quiz.id, "title": quiz.title, "description": quiz.description, "questions": questions_list})
+    for q in questions]
 
+    return jsonify({"id": quiz.id,
+                    "title": quiz.title,
+                    "description": quiz.description,
+                    "questions": questions_list})
+
+
+@app.route('/questions/<int:question_id>', methods=['DELETE'])
+def delete_question(question_id):
+    question = Question.query.get(question_id)
+    if not question:
+        return jsonify({"error": "Question not found"}), 404
+    db.session.delete(question)
+    db.session.commit()
+    return jsonify({"message": f"Question {question_id} deleted successfully"})
 # -------------------------
 # Step 5: Initialize DB and run
 # -------------------------
