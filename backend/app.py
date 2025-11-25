@@ -37,9 +37,43 @@ class Question(db.Model):
     options = db.Column(db.Text, nullable=False)
     correct_answer = db.Column(db.Integer, nullable=False)
 
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)   # student unique ID
+    name = db.Column(db.String(100))
+
+class QuizAttempt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    quiz_id = db.Column(db.Integer)
+    user_id = db.Column(db.Integer)
+    score = db.Column(db.Integer)
+
+    __table_args__ = (
+        db.UniqueConstraint('quiz_id', 'user_id', name='unique_user_quiz'),
+    )
+
 # -------------------------
 # Step 4: Routes
 # -------------------------
+
+@app.route('/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    user_id = data.get("id")
+    name = data.get("name")
+
+    if not user_id or not name:
+        return jsonify({"error": "User id and name are required"}), 400
+
+    # Check if user already exists
+    existing_user = User.query.get(user_id)
+    if existing_user:
+        return jsonify({"error": "User with this ID already exists"}), 400
+
+    user = User(id=user_id, name=name)
+    db.session.add(user)
+    db.session.commit()
+    return jsonify({"message": "User created successfully", "user_id": user.id}), 201
+
 @app.route('/quizzes', methods=['POST'])
 def create_quiz():
     data = request.get_json()
@@ -85,9 +119,16 @@ def add_question(quiz_id):
 def submit_quiz(quiz_id):
     data = request.get_json()
     submitted_answers = data.get("answers")
-    user_id = data.get("user_id")   # added
-    if user_id is None:
-        return jsonify({"error": "User_id is required"}), 400
+    user_id = data.get("user_id")
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "Invalid user_id"}), 400
+
+    existing = QuizAttempt.query.filter_by(quiz_id=quiz_id, user_id=user_id).first()
+    if existing:
+        return jsonify({"error": "This user already submitted this quiz"}), 400
+
     if not submitted_answers or not isinstance(submitted_answers, list):
         return jsonify({"error": "Answers must be provided as a list"}), 400
 
@@ -101,6 +142,10 @@ def submit_quiz(quiz_id):
     for q, submitted in zip(questions, submitted_answers):
         if submitted == q.correct_answer:
             score += 1
+
+    attempt = QuizAttempt(quiz_id=quiz_id, user_id=user_id, score=score)
+    db.session.add(attempt)
+    db.session.commit()
 
     return jsonify({"user_id":user_id,
                     "quiz_id": quiz_id,
