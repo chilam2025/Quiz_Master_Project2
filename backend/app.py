@@ -37,17 +37,42 @@ class Question(db.Model):
     options = db.Column(db.Text, nullable=False)
     correct_answer = db.Column(db.Integer, nullable=False)
 
+class User(db.Model):
+    id = db.Column(db.Integer, primary_key=True)   # student unique ID
+    name = db.Column(db.String(100))
+
+class QuizAttempt(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    quiz_id = db.Column(db.Integer)
+    user_id = db.Column(db.Integer)
+    score = db.Column(db.Integer)
+
+    __table_args__ = (
+        db.UniqueConstraint('quiz_id', 'user_id', name='unique_user_quiz'),
+    )
+
 # -------------------------
 # Step 4: Routes
 # -------------------------
-@app.route('/questions/<int:question_id>', methods=['DELETE'])
-def delete_question(question_id):
-    question = Question.query.get(question_id)
-    if not question:
-        return jsonify({"error": "Question not found"}), 404
-    db.session.delete(question)
+
+@app.route('/users', methods=['POST'])
+def create_user():
+    data = request.get_json()
+    user_id = data.get("id")
+    name = data.get("name")
+
+    if not user_id or not name:
+        return jsonify({"error": "User id and name are required"}), 400
+
+    # Check if user already exists
+    existing_user = User.query.get(user_id)
+    if existing_user:
+        return jsonify({"error": "User with this ID already exists"}), 400
+
+    user = User(id=user_id, name=name)
+    db.session.add(user)
     db.session.commit()
-    return jsonify({"message": f"Question {question_id} deleted successfully"})
+    return jsonify({"message": "User created successfully", "user_id": user.id}), 201
 
 @app.route('/quizzes', methods=['POST'])
 def create_quiz():
@@ -94,19 +119,38 @@ def add_question(quiz_id):
 def submit_quiz(quiz_id):
     data = request.get_json()
     submitted_answers = data.get("answers")
+    user_id = data.get("user_id")
+
+    user = User.query.get(user_id)
+    if not user:
+        return jsonify({"error": "Invalid user_id"}), 400
+
+    existing = QuizAttempt.query.filter_by(quiz_id=quiz_id, user_id=user_id).first()
+    if existing:
+        return jsonify({"error": "This user already submitted this quiz"}), 400
+
     if not submitted_answers or not isinstance(submitted_answers, list):
         return jsonify({"error": "Answers must be provided as a list"}), 400
 
-    questions = Question.query.filter_by(quiz_id=quiz_id).all()
+    questions = Question.query.filter_by(quiz_id=quiz_id).order_by(Question.id.asc()).all()
     if not questions:
         return jsonify({"error": "Quiz not found or has no questions"}), 404
+    if len(submitted_answers) != len(questions):
+        return jsonify({"error": "Number of answers does not match number of questions"}), 400
 
     score = 0
     for q, submitted in zip(questions, submitted_answers):
         if submitted == q.correct_answer:
             score += 1
 
-    return jsonify({"score": score, "total": len(questions)})
+    attempt = QuizAttempt(quiz_id=quiz_id, user_id=user_id, score=score)
+    db.session.add(attempt)
+    db.session.commit()
+
+    return jsonify({"user_id":user_id,
+                    "quiz_id": quiz_id,
+                    "score": score,
+                    "total": len(questions)})
 
 @app.route('/quizzes', methods=['GET'])
 def get_quizzes():
@@ -119,11 +163,25 @@ def get_quiz(quiz_id):
     if not quiz:
         return jsonify({"error": "Quiz not found"}), 404
 
-    questions = Question.query.filter_by(quiz_id=quiz_id).all()
-    questions_list = [{"id": q.id, "question": q.question, "options": json.loads(q.options), "correct_answer": q.correct_answer} for q in questions]
+    questions = Question.query.filter_by(quiz_id=quiz_id).order_by(Question.id.asc()).all()
+    questions_list = [{"id": q.id, "question": q.question,"options": json.loads(q.options)}
 
-    return jsonify({"id": quiz.id, "title": quiz.title, "description": quiz.description, "questions": questions_list})
+    for q in questions]
 
+    return jsonify({"id": quiz.id,
+                    "title": quiz.title,
+                    "description": quiz.description,
+                    "questions": questions_list})
+
+
+@app.route('/questions/<int:question_id>', methods=['DELETE'])
+def delete_question(question_id):
+    question = Question.query.get(question_id)
+    if not question:
+        return jsonify({"error": "Question not found"}), 404
+    db.session.delete(question)
+    db.session.commit()
+    return jsonify({"message": f"Question {question_id} deleted successfully"})
 # -------------------------
 # Step 5: Initialize DB and run
 # -------------------------
