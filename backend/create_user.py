@@ -1,9 +1,9 @@
 from server import app, db, User
 
 with app.app_context():
-    if not User.query.filter_by(username="testuser").first():
-        user = User(username="testuser")
-        user.set_password("12345")
+    # Example: create user with ID 7 and name "Amina Omar"
+    if not User.query.get(7):
+        user = User(id=7, name="Amina Omar")
         db.session.add(user)
         db.session.commit()
         print("User created successfully")
