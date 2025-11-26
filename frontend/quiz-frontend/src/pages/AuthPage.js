@@ -3,30 +3,28 @@ import { useNavigate } from "react-router-dom";
 
 const API_URL = "http://127.0.0.1:5000";
 
-export default function LoginRegisterPage() {
-  const [isLogin, setIsLogin] = useState(true);
+export default function AuthPage() {
+  const navigate = useNavigate();
+  const [mode, setMode] = useState("login"); // "login" or "register"
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const navigate = useNavigate();
-
-  const handleSubmit = async (e) => {
+  async function handleSubmit(e) {
     e.preventDefault();
     setError("");
+    setSuccess("");
 
-    if (!username || !password) {
-      setError("⚠️ Username and password are required.");
-      return;
-    }
+    const endpoint = mode === "login" ? "/login" : "/register";
 
     try {
-      const endpoint = isLogin ? "login" : "register";
-      const res = await fetch(`${API_URL}/${endpoint}`, {
+      const res = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username, password }),
       });
+
       const data = await res.json();
 
       if (!res.ok) {
@@ -34,28 +32,28 @@ export default function LoginRegisterPage() {
         return;
       }
 
-      if (!isLogin) {
-        // After successful registration, auto-switch to login
-        setIsLogin(true);
-        setUsername("");
-        setPassword("");
-        setError("✅ Registration successful! Please login now.");
+      if (mode === "register") {
+        setSuccess("Registration successful! Please log in.");
+        setMode("login");
         return;
       }
 
-      // Login successful -> store token and redirect
-      localStorage.setItem("user", JSON.stringify({
-        user_id: data.user_id,
-        username: data.username,
-        token: data.token
-      }));
+      // Login success: save user
+      localStorage.setItem(
+        "user",
+        JSON.stringify({
+          username: data.username,
+          token: data.token,
+          user_id: data.user_id,
+        })
+      );
 
       navigate("/quizzes");
     } catch (err) {
       console.error(err);
       setError("Server error");
     }
-  };
+  }
 
   return (
     <div
@@ -63,83 +61,107 @@ export default function LoginRegisterPage() {
         display: "flex",
         justifyContent: "center",
         alignItems: "center",
-        minHeight: "100vh",
-        background: "linear-gradient(135deg, #f6d365 0%, #fda085 100%)",
+        height: "100vh",
+        background: "linear-gradient(135deg, #4e54c8, #8f94fb)",
         fontFamily: "'Poppins', sans-serif",
       }}
     >
       <div
         style={{
-          background: "white",
+          width: "380px",
           padding: "40px",
-          borderRadius: "12px",
-          width: "350px",
-          boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
+          background: "white",
+          borderRadius: "15px",
+          boxShadow: "0 10px 25px rgba(0,0,0,0.2)",
           textAlign: "center",
         }}
       >
         <h1 style={{ marginBottom: "20px", color: "#4e54c8" }}>
-          {isLogin ? "Login for QuizMaster" : "Register for QuizMaster"}
+          {mode === "login" ? "Login to QuizMaster" : "Register for QuizMaster"}
         </h1>
+
+        {error && <p style={{ color: "red" }}>{error}</p>}
+        {success && <p style={{ color: "green" }}>{success}</p>}
 
         <form onSubmit={handleSubmit}>
           <input
             type="text"
-            placeholder="Username"
+            placeholder="Enter Username"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
+            required
             style={{
               width: "100%",
-              padding: "10px",
+              padding: "12px",
               marginBottom: "15px",
               borderRadius: "8px",
-              border: "1px solid #ccc",
-            }}
-          />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "10px",
-              marginBottom: "15px",
-              borderRadius: "8px",
-              border: "1px solid #ccc",
+              border: "1px solid #ddd",
             }}
           />
 
-          {error && <p style={{ color: error.includes("✅") ? "green" : "red" }}>{error}</p>}
+          <input
+            type="password"
+            placeholder="Enter Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            style={{
+              width: "100%",
+              padding: "12px",
+              marginBottom: "15px",
+              borderRadius: "8px",
+              border: "1px solid #ddd",
+            }}
+          />
 
           <button
             type="submit"
             style={{
               width: "100%",
               padding: "12px",
-              borderRadius: "8px",
-              border: "none",
               background: "linear-gradient(90deg, #4e54c8, #8f94fb)",
+              border: "none",
+              borderRadius: "8px",
               color: "white",
-              fontWeight: "bold",
+              fontSize: "16px",
               cursor: "pointer",
+              marginTop: "10px",
             }}
           >
-            {isLogin ? "Login" : "Register"}
+            {mode === "login" ? "Login" : "Register"}
           </button>
         </form>
 
-        <p style={{ marginTop: "15px", color: "#555" }}>
-          {isLogin ? "Don't have an account?" : "Already have an account?"}{" "}
-          <span
-            onClick={() => {
-              setIsLogin(!isLogin);
-              setError("");
-            }}
-            style={{ color: "#4e54c8", cursor: "pointer", fontWeight: "bold" }}
-          >
-            {isLogin ? "Register" : "Login"}
-          </span>
+        <p style={{ marginTop: "20px" }}>
+          {mode === "login" ? (
+            <>
+              Don't have an account?{" "}
+              <span
+                onClick={() => {
+                  setMode("register");
+                  setError("");
+                  setSuccess("");
+                }}
+                style={{ color: "#4e54c8", cursor: "pointer" }}
+              >
+                Register here
+              </span>
+            </>
+          ) : (
+            <>
+              Already have an account?{" "}
+              <span
+                onClick={() => {
+                  setMode("login");
+                  setError("");
+                  setSuccess("");
+                }}
+                style={{ color: "#4e54c8", cursor: "pointer" }}
+              >
+                Login here
+              </span>
+            </>
+          )}
         </p>
       </div>
     </div>

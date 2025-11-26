@@ -17,14 +17,12 @@ export default function ResultsPage() {
     async function fetchScore() {
       if (!token) return;
       try {
-        // Get user's attempt
         const res = await fetch(`${API_URL}/users/${user_id}/attempts`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const data = await res.json();
         const attempt = data.find((a) => a.quiz_id === parseInt(quiz_id));
 
-        // Get quiz to know total questions
         const resQuiz = await fetch(`${API_URL}/quizzes/${quiz_id}`);
         const quizData = await resQuiz.json();
         const totalQuestions = quizData.questions.length;
@@ -35,7 +33,7 @@ export default function ResultsPage() {
         });
       } catch (err) {
         console.error(err);
-        setScoreData({ score: 0, total: 1 }); // fallback
+        setScoreData({ score: 0, total: 1 });
       }
     }
     fetchScore();
@@ -61,7 +59,12 @@ export default function ResultsPage() {
         background: "#f0f4f8",
       }}
     >
-      {isGood && <Confetti width={window.innerWidth} height={window.innerHeight} />}
+      {isGood && (
+        <Confetti
+          width={window.innerWidth}
+          height={window.innerHeight}
+        />
+      )}
 
       <motion.h1
         initial={{ y: -50, opacity: 0 }}
@@ -104,7 +107,7 @@ export default function ResultsPage() {
       )}
 
       <motion.button
-        onClick={() => navigate("/")}
+        onClick={() => navigate("/quizzes")}   // ← ADDED THIS LINE ONLY
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         style={{
