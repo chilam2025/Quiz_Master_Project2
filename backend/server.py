@@ -28,7 +28,7 @@ db = SQLAlchemy(app)
 # -------------------------
 class User(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    username = db.Column(db.String(200), unique=True, nullable=False)
+    email = db.Column(db.String(200), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
 
     def set_password(self, password):
@@ -57,6 +57,9 @@ class QuizAttempt(db.Model):
     quiz_id = db.Column(db.Integer, nullable=False)
     user_id = db.Column(db.Integer, nullable=False)
     score = db.Column(db.Integer, nullable=False)
+    total_questions = db.Column(db.Integer, nullable=False)
+    percentage = db.Column(db.Float, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
 
     __table_args__ = (
         db.UniqueConstraint("quiz_id", "user_id", name="unique_user_quiz"),
@@ -105,30 +108,30 @@ def token_required(f):
 @app.route("/register", methods=["POST"])
 def register():
     data = request.get_json() or {}
-    username = data.get("username")
+    email = data.get("email")
     password = data.get("password")
-    if not username or not password:
-        return jsonify({"error": "username and password required"}), 400
-    if User.query.filter_by(username=username).first():
-        return jsonify({"error": "User already exists"}), 400
-    user = User(username=username)
+    if not email or not password:
+        return jsonify({"error": "email and password required"}), 400
+    if User.query.filter_by(email=email).first():
+        return jsonify({"error": "Email already exists"}), 400
+    user = User(email=email)
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
-    return jsonify({"message": "Registration successful", "user_id": user.id, "username": user.username}), 201
+    return jsonify({"message": "Registration successful", "user_id": user.id, "email": user.email}), 201
 
 @app.route("/login", methods=["POST"])
 def login():
     data = request.get_json() or {}
-    username = data.get("username")
+    email = data.get("email")
     password = data.get("password")
-    if not username or not password:
-        return jsonify({"error": "username and password required"}), 400
-    user = User.query.filter_by(username=username).first()
+    if not email or not password:
+        return jsonify({"error": "email and password required"}), 400
+    user = User.query.filter_by(email=email).first()
     if not user or not user.check_password(password):
         return jsonify({"error": "Invalid credentials"}), 401
     token = generate_token(user.id, hours=12)
-    return jsonify({"message": "Login successful", "user_id": user.id, "username": user.username, "token": token}), 200
+    return jsonify({"message": "Login successful", "user_id": user.id, "email": user.email, "token": token}), 200
 
 # -------------------------
 # Quiz creation / admin (optional)
@@ -222,7 +225,7 @@ def submit_quiz(quiz_id):
             ai = -1
         if ai == q.correct_answer:
             score += 1
-    attempt = QuizAttempt(quiz_id=quiz_id, user_id=current_user.id, score=score)
+    attempt = QuizAttempt(quiz_id=quiz_id, user_id=current_user.id, score=score, total_questions=len(questions), percentage=(score/len(questions))*100)
     db.session.add(attempt)
     db.session.commit()
     return jsonify({"user_id": current_user.id, "quiz_id": quiz_id, "score": score, "total": len(questions)}), 200
@@ -239,6 +242,29 @@ def get_user_attempts(user_id):
         total = Question.query.filter_by(quiz_id=a.quiz_id).count()
         result.append({"quiz_id": a.quiz_id, "score": a.score, "total": total})
     return jsonify(result)
+
+@app.route("/quizzes/<int:quiz_id>", methods=["DELETE"])
+def delete_quiz(quiz_id):
+    quiz = Quiz.query.get(quiz_id)
+    if not quiz:
+        return jsonify({"error": "Quiz not found"}), 404
+    db.session.delete(quiz)
+    db.session.commit()
+    return jsonify({"message": "Quiz deleted"})
+
+
+@app.route("/quizzes/<int:quiz_id>", methods=["PUT"])
+def update_quiz(quiz_id):
+    data = request.get_json()
+    quiz = Quiz.query.get(quiz_id)
+    if not quiz:
+        return jsonify({"error": "Quiz not found"}), 404
+
+    quiz.title = data.get("title", quiz.title)
+    quiz.description = data.get("description", quiz.description)
+    db.session.commit()
+
+    return jsonify({"message": "Quiz updated"})
 
 # -------------------------
 # Initialize DB & run
