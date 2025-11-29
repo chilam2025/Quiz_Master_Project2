@@ -6,7 +6,7 @@ const API_URL = "http://127.0.0.1:5000";
 export default function AuthPage() {
   const navigate = useNavigate();
   const [mode, setMode] = useState("login"); // "login" or "register"
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -22,7 +22,7 @@ export default function AuthPage() {
       const res = await fetch(`${API_URL}${endpoint}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ email, password }),
       });
 
       const data = await res.json();
@@ -42,7 +42,7 @@ export default function AuthPage() {
       localStorage.setItem(
         "user",
         JSON.stringify({
-          username: data.username,
+          email: data.email,
           token: data.token,
           user_id: data.user_id,
         })
@@ -86,9 +86,9 @@ export default function AuthPage() {
         <form onSubmit={handleSubmit}>
           <input
             type="text"
-            placeholder="Enter Username"
-            value={username}
-            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Enter email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
             required
             style={{
               width: "100%",

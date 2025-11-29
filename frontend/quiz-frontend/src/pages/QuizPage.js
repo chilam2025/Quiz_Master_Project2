@@ -113,7 +113,7 @@ export default function QuizPage() {
             textShadow: "0 2px 4px rgba(0,0,0,0.2)",
           }}
         >
-          Hello {user.username}, are you ready to take a fun quiz?
+          Hello {user.email}, are you ready to take a fun quiz?
         </h2>
       )}
 

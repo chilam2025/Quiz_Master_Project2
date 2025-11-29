@@ -7,6 +7,9 @@ import jwt
 import json
 import os
 from functools import wraps
+import re
+import dns.resolver
+
 
 # -------------------------
 # App & DB setup
@@ -105,20 +108,57 @@ def token_required(f):
 # -------------------------
 # Auth endpoints
 # -------------------------
+def email_domain_exists(email):
+    try:
+        domain = email.split("@")[1]
+        print(f"Checking MX for domain: {domain}")
+        dns.resolver.resolve(domain, "MX")
+        return True
+    except Exception as e:
+        print(f"MX check failed for {domain}: {e}")
+        return False
+
 @app.route("/register", methods=["POST"])
 def register():
     data = request.get_json() or {}
-    email = data.get("email")
-    password = data.get("password")
+    email = data.get("email", "").strip()
+    password = data.get("password", "").strip()
+
+    # 1. Required fields
     if not email or not password:
         return jsonify({"error": "email and password required"}), 400
+
+    # 2. Validate format
+    email_regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+    if not re.match(email_regex, email):
+        return jsonify({"error": "Invalid email format"}), 400
+
+    # 3. Check real email domain exists
+    if not email_domain_exists(email):
+        return jsonify({"error": "Email domain does not exist"}), 400
+
+    # 4. Email already taken?
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "Email already exists"}), 400
+
+    # 5. Strong password validation
+    password_regex = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$"
+    if not re.match(password_regex, password):
+        return jsonify({
+            "error": "Password must be at least 8 characters, include uppercase, lowercase, number, and special character"
+        }), 400
+
+    # 6. Create user
     user = User(email=email)
     user.set_password(password)
     db.session.add(user)
     db.session.commit()
-    return jsonify({"message": "Registration successful", "user_id": user.id, "email": user.email}), 201
+
+    return jsonify({
+        "message": "Registration successful",
+        "user_id": user.id,
+        "email": user.email
+    }), 201
 
 @app.route("/login", methods=["POST"])
 def login():
@@ -265,6 +305,54 @@ def update_quiz(quiz_id):
     db.session.commit()
 
     return jsonify({"message": "Quiz updated"})
+
+
+@app.route("/quizzes/<int:quiz_id>/questions/bulk", methods=["POST"])
+def add_questions_bulk(quiz_id):
+    data = request.get_json()
+
+    if not isinstance(data, list):
+        return jsonify({"error": "Expected a list of questions"}), 400
+
+    quiz = Quiz.query.get(quiz_id)
+    if not quiz:
+        return jsonify({"error": "Quiz not found"}), 404
+
+    created = []
+
+    for item in data:
+        question_text = item.get("question_text")
+        options = item.get("options")
+        correct = item.get("correct_answer")
+
+        if not question_text or not options or correct is None:
+            return jsonify({"error": "Missing fields in one of the questions"}), 400
+
+        if not isinstance(options, list) or len(options) < 2:
+            return jsonify({"error": "Options must be a list with at least 2 items"}), 400
+
+        if correct not in options:
+            return jsonify({"error": "correct_answer must be one of the options"}), 400
+
+        correct_index = options.index(correct)
+
+        q = Question(
+            quiz_id=quiz_id,
+            question=question_text,
+            options=json.dumps(options),
+            correct_answer=correct_index
+        )
+
+        db.session.add(q)
+        created.append(question_text)
+
+    db.session.commit()
+
+    return jsonify({
+        "message": f"{len(created)} questions added successfully",
+        "questions_added": created
+    }), 201
+
 
 # -------------------------
 # Initialize DB & run
