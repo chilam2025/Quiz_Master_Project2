@@ -280,7 +280,8 @@ def get_user_attempts(user_id):
     result = []
     for a in attempts:
         total = Question.query.filter_by(quiz_id=a.quiz_id).count()
-        result.append({"quiz_id": a.quiz_id, "score": a.score, "total": total})
+        result.append({"quiz_id": a.quiz_id, "score": a.score, "total": total, "timestamp": a.timestamp.isoformat()
+})
     return jsonify(result)
 
 @app.route("/quizzes/<int:quiz_id>", methods=["DELETE"])

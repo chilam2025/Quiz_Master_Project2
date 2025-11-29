@@ -38,7 +38,23 @@ export default function QuizList() {
             </motion.div>
           ))}
         </div>
+
       </div>
+        <button
+  onClick={() => navigate("/history")}
+  style={{
+    marginBottom: "20px",
+    padding: "12px 20px",
+    borderRadius: "6px",
+    background: "#8f94fb",
+    border: "none",
+    color: "white",
+    cursor: "pointer",
+  }}
+>
+  📊 View My History
+</button>
+
 
       {/* Logout button at bottom center */}
       <button

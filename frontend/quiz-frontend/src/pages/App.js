@@ -4,6 +4,8 @@ import AuthPage from "./AuthPage";
 import QuizList from "./QuizList";
 import QuizPage from "./QuizPage";
 import ResultsPage from "./ResultsPage";
+import HistoryPage from "./HistoryPage";
+
 
 // ProtectedRoute ensures only logged-in users can access certain pages
 function ProtectedRoute({ children }) {
@@ -50,6 +52,15 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+           path="/history"
+           element={
+             <ProtectedRoute>
+               <HistoryPage />
+             </ProtectedRoute>
+           }
+        />
+
 
         {/* Redirect unknown routes */}
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -8,6 +8,8 @@ const API_URL = "http://127.0.0.1:5000";
 export default function ResultsPage() {
   const { user_id, quiz_id } = useParams();
   const [scoreData, setScoreData] = useState(null);
+  const [attempts, setAttempts] = useState([]);
+  const [average, setAverage] = useState(0);
   const navigate = useNavigate();
 
   const user = JSON.parse(localStorage.getItem("user"));
@@ -20,8 +22,16 @@ export default function ResultsPage() {
         const res = await fetch(`${API_URL}/users/${user_id}/attempts`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const data = await res.json();
-        const attempt = data.find((a) => a.quiz_id === parseInt(quiz_id));
+        const history = await res.json();
+        setAttempts(history);
+
+// Compute average score
+        if (history.length > 0) {
+          const avg =
+            history.reduce((sum, a) => sum + a.score, 0) / history.length;
+          setAverage(avg.toFixed(2));
+}
+        const attempt = history.find((a) => a.quiz_id === parseInt(quiz_id));
 
         const resQuiz = await fetch(`${API_URL}/quizzes/${quiz_id}`);
         const quizData = await resQuiz.json();
