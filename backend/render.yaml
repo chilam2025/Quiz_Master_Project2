@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: quiz-master-backend
+    runtime: python
+    region: frankfurt
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn -b 0.0.0.0:10000 application:app"
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
