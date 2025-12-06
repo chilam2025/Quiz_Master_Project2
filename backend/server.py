@@ -15,7 +15,7 @@ import dns.resolver
 # App & DB setup
 # -------------------------
 app = Flask(__name__)
-CORS(app)
+CORS(app, origins=["https://quiz-master-static-web.onrender.com"])
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(BASE_DIR, "quiz.db")
