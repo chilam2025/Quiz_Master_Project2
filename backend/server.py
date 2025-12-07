@@ -20,7 +20,13 @@ CORS(app, origins=["https://quiz-master-static-web.onrender.com"])
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(BASE_DIR, "quiz.db")
 
-app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
+# Prefer environment DATABASE_URL (Render gives you it), fallback to local SQLite
+DATABASE_URL = os.environ.get("DATABASE-URL") or f"sqlite:///{db_path}"
+
+# If Render gives a postgres URL starting with postgres://, SQLAlchemy new versions expect postgresql://
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+app.config["SQLALCHEMY_DATABASE_URI"] = DATABASE_URL
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("QUIZ_SECRET", "supersecretkey123")
 
@@ -360,15 +366,11 @@ def add_questions_bulk(quiz_id):
 # -------------------------
 if __name__ == "__main__":
     with app.app_context():
-        # Only create tables if the database file does NOT exist
-        if not os.path.exists(db_path):
-            print("Database not found. Creating a new one...")
-            db.create_all()
-        else:
-            print("Existing database found. Using it...")
+        print(f"Using database: {DATABASE_URL}")
+        db.create_all()
 
         quizzes = Quiz.query.all()
         for quiz in quizzes:
             count = Question.query.filter_by(quiz_id=quiz.id).count()
-            print(f"Quiz {quiz.id} has {count} questions in the database")
+            print(f"Quiz {quiz.id} has {count} questions.")
     app.run(debug=True)
