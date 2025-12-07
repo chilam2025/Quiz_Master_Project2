@@ -360,7 +360,13 @@ def add_questions_bulk(quiz_id):
 # -------------------------
 if __name__ == "__main__":
     with app.app_context():
-        db.create_all()
+        # Only create tables if the database file does NOT exist
+        if not os.path.exists(db_path):
+            print("Database not found. Creating a new one...")
+            db.create_all()
+        else:
+            print("Existing database found. Using it...")
+
         quizzes = Quiz.query.all()
         for quiz in quizzes:
             count = Question.query.filter_by(quiz_id=quiz.id).count()
