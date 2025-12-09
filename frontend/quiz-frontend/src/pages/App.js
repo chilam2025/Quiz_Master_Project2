@@ -5,6 +5,7 @@ import QuizList from "./QuizList";
 import QuizPage from "./QuizPage";
 import ResultsPage from "./ResultsPage";
 import HistoryPage from "./HistoryPage";
+import Prediction from "./Prediction";
 
 
 // ProtectedRoute ensures only logged-in users can access certain pages
@@ -60,12 +61,23 @@ function App() {
              </ProtectedRoute>
            }
         />
+       {/* Prediction Page (Protected) */}
+       <Route
+           path="/predict"
+           element={
+          <ProtectedRoute>
+             <Prediction />
+       </ProtectedRoute>
+       }
+      />
+
 
 
         {/* Redirect unknown routes */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
+
   );
 }
 
