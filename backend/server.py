@@ -9,6 +9,9 @@ import os
 from functools import wraps
 import re
 import dns.resolver
+import numpy as np
+import math
+import random
 
 
 # -------------------------
@@ -213,7 +216,9 @@ def add_question(quiz_id):
 # -------------------------
 @app.route("/quizzes", methods=["GET"])
 def get_quizzes():
-    quizzes = Quiz.query.all()
+    quizzes = Quiz.query.filter(
+        Quiz.title.notlike("%Synthetic%")
+    ).all()
     return jsonify([{"id": q.id, "title": q.title, "description": q.description} for q in quizzes])
 
 @app.route("/quizzes/<int:quiz_id>", methods=["GET"])
@@ -353,6 +358,276 @@ def add_questions_bulk(quiz_id):
         "message": f"{len(created)} questions added successfully",
         "questions_added": created
     }), 201
+
+
+#-----------------------
+#LINEAR REGRESSION ENDPOINT (fixed)
+#---------------------------
+# LINEAR REGRESSION ENDPOINT (weighted trend)
+# -------------------------
+# Module 3: Performance Predictor endpoints
+# -------------------------
+import uuid
+from math import isfinite
+
+def create_synthetic_quiz_for_attempt(quiz_title):
+    """Create a quiz used for synthetic attempts and return its id."""
+    q = Quiz(title=quiz_title, description="Synthetic quiz for testing Module 3")
+    db.session.add(q)
+    db.session.commit()
+    return q.id
+
+@app.route("/module3/generate_synthetic", methods=["POST"])
+@token_required
+
+
+@token_required
+def generate_synthetic():
+    """
+    Generate synthetic QuizAttempt records for the current user for testing.
+    Body JSON (optional):
+      {
+        "n": 10,
+        "base": 60,
+        "trend": 1.5,
+        "noise": 6,
+        "pattern": "linear"   # linear, quadratic, sinusoidal, plateau
+      }
+    Returns created attempt summaries.
+    """
+    data = request.get_json() or {}
+    n = int(data.get("n", 10))
+    base = float(data.get("base", 60.0))
+    trend = float(data.get("trend", 1.0))
+    noise = float(data.get("noise", 5.0))
+    pattern = data.get("pattern", "linear")  # default linear
+    current_user = request.current_user
+
+    created = []
+    start_time = datetime.utcnow() - timedelta(days=n)
+
+    for i in range(n):
+        # create a dedicated synthetic quiz for each attempt
+        quiz_title = f"Synthetic Quiz {current_user.id}-{uuid.uuid4().hex[:6]}-{i}"
+        quiz_id = create_synthetic_quiz_for_attempt(quiz_title)
+
+        # generate percentage according to pattern
+        if pattern == "linear":
+            pct = base + trend * i
+        elif pattern == "quadratic":
+            curvature = data.get("curvature", 0.5)  # default curvature
+            pct = base + trend * i + curvature * (i ** 2)
+        elif pattern == "sinusoidal":
+            amplitude = data.get("amplitude", 10.0)
+            frequency = data.get("frequency", 0.5)
+            pct = base + amplitude * math.sin(frequency * i)
+        elif pattern == "plateau":
+            growth = data.get("growth", 0.3)
+            midpoint = n / 2
+            pct = 100 / (1 + math.exp(-growth * (i - midpoint)))
+        else:
+            pct = base + trend * i  # fallback linear
+
+        # add Gaussian noise
+        pct += np.random.normal(0, noise)
+        pct = max(0.0, min(100.0, pct))  # clamp to [0,100]
+
+        total_q = 17
+        score = int(round((pct / 100.0) * total_q))
+
+        attempt = QuizAttempt(
+            quiz_id=quiz_id,
+            user_id=current_user.id,
+            score=score,
+            total_questions=total_q,
+            percentage=float(pct),
+            timestamp=(start_time + timedelta(days=i))
+        )
+        db.session.add(attempt)
+        created.append({
+            "quiz_id": quiz_id,
+            "score": score,
+            "percentage": round(pct, 2),
+            "timestamp": attempt.timestamp.isoformat()
+        })
+
+    db.session.commit()
+    return jsonify({"message": f"Created {len(created)} synthetic attempts", "created": created}), 201
+
+
+
+def fit_linear_regression(x, y):
+    """
+    Fit simple linear regression y = a*x + b.
+    x, y are 1D numpy arrays (floats). Returns dict with slope, intercept, r2.
+    """
+    if len(x) < 2:
+        return None
+    try:
+        a, b = np.polyfit(x, y, 1)
+        # compute R^2
+        y_pred = a * x + b
+        ss_res = np.sum((y - y_pred) ** 2)
+        ss_tot = np.sum((y - np.mean(y)) ** 2)
+        r2 = 1 - ss_res / ss_tot if ss_tot != 0 else 0.0
+        return {"slope": float(a), "intercept": float(b), "r2": float(r2)}
+    except Exception:
+        return None
+
+
+def difficulty_from_prediction(predicted_pct, slope):
+    """
+    Map predicted percentage and trend to a recommended difficulty label.
+    Logic:
+      - If slope positive and predicted high -> recommend harder
+      - If slope negative and predicted low -> recommend easier
+      - Otherwise map by predicted_pct thresholds.
+    Returns label string.
+    """
+    if predicted_pct is None or not isfinite(predicted_pct):
+        return "Unknown"
+
+    if predicted_pct >= 85:
+        base = "Hard"
+    elif predicted_pct >= 65:
+        base = "Medium"
+    elif predicted_pct >= 45:
+        base = "Easy"
+    else:
+        base = "Very Easy"
+
+    # adjust based on trend
+    if slope is None:
+        return base
+
+    if slope > 0.75:
+        # improving quickly -> bump up difficulty one level where possible
+        if base == "Very Easy":
+            return "Easy"
+        if base == "Easy":
+            return "Medium"
+        if base == "Medium":
+            return "Hard"
+        return base
+    elif slope < -0.75:
+        # declining -> be more conservative
+        if base == "Hard":
+            return "Medium"
+        if base == "Medium":
+            return "Easy"
+        if base == "Easy":
+            return "Very Easy"
+        return base
+
+    return base
+
+
+def trend_label(slope):
+    if slope is None:
+        return "insufficient data"
+    if slope > 0.5:
+        return "improving"
+    if slope < -0.5:
+        return "declining"
+    return "stable"
+
+
+@app.route("/predict", methods=["GET"])
+@token_required
+def predict_next_score():
+    """
+    GET /predict?user_id=<id>
+    Returns predicted next percentage, expected score, difficulty recommendation, trend, and model info.
+    """
+    uid = request.args.get("user_id", None)
+    if uid is None:
+        return jsonify({"error": "user_id query parameter required"}), 400
+    try:
+        uid = int(uid)
+    except ValueError:
+        return jsonify({"error": "invalid user_id"}), 400
+
+    # authorization: token user must match requested user
+    if request.current_user.id != uid:
+        return jsonify({"error": "Unauthorized - token user mismatch"}), 401
+
+    # Get user's attempts
+    attempts = QuizAttempt.query.filter_by(user_id=uid).order_by(QuizAttempt.timestamp.asc()).all()
+    if not attempts:
+        return jsonify({"error": "No attempts found for user; create synthetic data or take quizzes"}), 404
+
+    # Prepare x, y
+    y_user = np.array([float(a.percentage) for a in attempts])
+    x_user = np.arange(1, len(y_user) + 1, dtype=float)
+
+    # Fit regression
+    model_user = fit_linear_regression(x_user, y_user)
+    history = [
+        {
+            "attempt_index": int(i + 1),
+            "percentage": float(round(float(p), 2)),
+            "timestamp": attempts[i].timestamp.isoformat()
+        } for i, p in enumerate(y_user)
+    ]
+
+    if model_user is None:
+        return jsonify({
+            "history": history,
+            "message": "Not enough data to fit a regression (need at least 2 attempts).",
+            "prediction": None
+        }), 200
+
+    slope = model_user["slope"]
+    intercept = model_user["intercept"]
+    r2 = model_user.get("r2", 0.0)
+
+    # Predict next attempt
+    next_x = float(len(x_user) + 1)
+    predicted_pct = slope * next_x + intercept
+    predicted_pct = float(max(0.0, min(100.0, predicted_pct)))  # clamp
+
+    # Expected score based on last quiz's total_questions
+    total_questions = attempts[-1].total_questions if attempts else 10  # fallback 10
+    predicted_score = int(round((predicted_pct / 100.0) * total_questions))
+
+    # Optional: nudge for very new users using all-user slope
+    if len(y_user) < 3:
+        all_attempts = QuizAttempt.query.order_by(QuizAttempt.timestamp.asc()).all()
+        if len(all_attempts) > 1:
+            y_all = np.array([a.percentage for a in all_attempts])
+            x_all = np.arange(1, len(y_all) + 1, dtype=float)
+            model_all = fit_linear_regression(x_all, y_all)
+            if model_all is not None:
+                predicted_pct += 0.1 * (model_all['slope'] - slope) * next_x
+                predicted_pct = float(max(0.0, min(100.0, predicted_pct)))
+                predicted_score = int(round((predicted_pct / 100.0) * total_questions))
+
+    rec_difficulty = difficulty_from_prediction(predicted_pct, slope)
+    trend = trend_label(slope)
+
+    return jsonify({
+        "user_id": uid,
+        "prediction": {
+            "next_attempt_index": int(next_x),
+            "predicted_percentage": round(predicted_pct, 2),
+            "predicted_score": predicted_score,
+            "total_questions": total_questions
+        },
+        "recommendation": {
+            "difficulty": rec_difficulty,
+            "reason": f"based on predicted {round(predicted_pct,2)}% and slope {round(slope,3)}"
+        },
+        "trend": trend,
+        "model": {
+            "slope": round(slope, 4),
+            "intercept": round(intercept, 4),
+            "r2": round(r2, 4)
+        },
+        "history": history
+    }), 200
+
+
+
 
 
 # -------------------------
