@@ -115,7 +115,7 @@ export default function ResultsPage() {
           style={{ width: "120px", marginTop: "20px" }}
         />
       )}
-
+        {/*Buttons*/}
       <motion.button
         onClick={() => navigate("/quizzes")}   // ← ADDED THIS LINE ONLY
         whileHover={{ scale: 1.05 }}
@@ -134,6 +134,25 @@ export default function ResultsPage() {
       >
         Go Back Home
       </motion.button>
+
+      {/* Navigate to Prediction page */}
+      <motion.button
+        onClick={() => navigate("/predict")}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        style={{
+            padding: "15px 30px",
+            borderRadius: "8px",
+            border: "none",
+            background: "linear-gradient(90deg, #ff7e5f, #feb47b)",
+            color: "white",
+            fontSize: "16px",
+            cursor: "pointer",
+            boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
+          }}
+        >
+          See Predicted Score
+        </motion.button>
     </div>
-  );
+   );
 }
