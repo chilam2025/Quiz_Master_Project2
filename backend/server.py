@@ -360,10 +360,7 @@ def add_questions_bulk(quiz_id):
     }), 201
 
 
-#-----------------------
-#LINEAR REGRESSION ENDPOINT (fixed)
-#---------------------------
-# LINEAR REGRESSION ENDPOINT (weighted trend)
+
 # -------------------------
 # Module 3: Performance Predictor endpoints
 # -------------------------
