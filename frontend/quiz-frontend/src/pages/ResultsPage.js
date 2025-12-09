@@ -3,7 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import Confetti from "react-confetti";
 import { motion } from "framer-motion";
 
-const API_URL = "https://quiz-master-app-psrq.onrender.com";
+const API_URL = "http://127.0.0.1:5000";
 
 export default function ResultsPage() {
   const { user_id, quiz_id } = useParams();
