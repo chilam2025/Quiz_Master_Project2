@@ -8,6 +8,8 @@ const API_URL = "http://127.0.0.1:5000";
 export default function ResultsPage() {
   const { user_id, quiz_id } = useParams();
   const [scoreData, setScoreData] = useState(null);
+  const [attempts, setAttempts] = useState([]);
+  const [average, setAverage] = useState(0);
   const navigate = useNavigate();
 
   const user = JSON.parse(localStorage.getItem("user"));
@@ -20,8 +22,16 @@ export default function ResultsPage() {
         const res = await fetch(`${API_URL}/users/${user_id}/attempts`, {
           headers: { Authorization: `Bearer ${token}` },
         });
-        const data = await res.json();
-        const attempt = data.find((a) => a.quiz_id === parseInt(quiz_id));
+        const history = await res.json();
+        setAttempts(history);
+
+// Compute average score
+        if (history.length > 0) {
+          const avg =
+            history.reduce((sum, a) => sum + a.score, 0) / history.length;
+          setAverage(avg.toFixed(2));
+}
+        const attempt = history.find((a) => a.quiz_id === parseInt(quiz_id));
 
         const resQuiz = await fetch(`${API_URL}/quizzes/${quiz_id}`);
         const quizData = await resQuiz.json();
@@ -105,7 +115,7 @@ export default function ResultsPage() {
           style={{ width: "120px", marginTop: "20px" }}
         />
       )}
-
+        {/*Buttons*/}
       <motion.button
         onClick={() => navigate("/quizzes")}   // ← ADDED THIS LINE ONLY
         whileHover={{ scale: 1.05 }}
@@ -124,6 +134,25 @@ export default function ResultsPage() {
       >
         Go Back Home
       </motion.button>
+
+      {/* Navigate to Prediction page */}
+      <motion.button
+        onClick={() => navigate("/predict")}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        style={{
+            padding: "15px 30px",
+            borderRadius: "8px",
+            border: "none",
+            background: "linear-gradient(90deg, #ff7e5f, #feb47b)",
+            color: "white",
+            fontSize: "16px",
+            cursor: "pointer",
+            boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
+          }}
+        >
+          See Predicted Score
+        </motion.button>
     </div>
-  );
+   );
 }
