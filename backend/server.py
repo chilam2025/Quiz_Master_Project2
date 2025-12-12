@@ -18,14 +18,17 @@ import random
 # App & DB setup
 # -------------------------
 app = Flask(__name__)
-CORS(app,origins=["https://quiz-master-project2-frontend.onrender.com"])
+CORS(app, origins=["https://quiz-master-project2-frontend.onrender.com"])
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-db_path = os.path.join(BASE_DIR, "quiz.db")
+# Use environment variable if set, otherwise fall back to your PostgreSQL URL
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "DATABASE_URL",
+    "postgresql://quiz_db_14ek_user:V1DJtyn9RYFKN2p6Tx1WcoTSZ4NvDAHH@dpg-d4ti9hbuibrs73ano130-a.oregon-postgres.render.com/quiz_db_14ek"
+)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("QUIZ_SECRET", "supersecretkey123")
+
 
 db = SQLAlchemy(app)
 
