@@ -18,12 +18,12 @@ import random
 # App & DB setup
 # -------------------------
 app = Flask(__name__)
-CORS(app)
+CORS(app,origins=["https://quiz-master-project2-frontend.onrender.com"])
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 db_path = os.path.join(BASE_DIR, "quiz.db")
 
-app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{db_path}"
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get("DATABASE_URL")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("QUIZ_SECRET", "supersecretkey123")
 
