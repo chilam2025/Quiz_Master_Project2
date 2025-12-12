@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 
-const API_URL = "http://127.0.0.1:5000";
+const API_URL = "https://quiz-master-project2-backend.onrender.com";
 
 export default function QuizPage() {
   const { id } = useParams();
