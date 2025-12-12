@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
-const API_URL = "http://127.0.0.1:5000";
+const API_URL = "https://quiz-master-project2-backend.onrender.com";
 
 export default function Prediction() {
   const navigate = useNavigate();
