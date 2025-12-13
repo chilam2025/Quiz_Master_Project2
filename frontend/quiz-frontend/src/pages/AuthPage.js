@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-
-const API_URL = "https://quiz-master-project2-backend.onrender.com";
+import API_URL from "../services/api";
+console.log("API_URL =", API_URL);
 
 export default function AuthPage() {
   const navigate = useNavigate();
