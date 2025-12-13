@@ -1,0 +1,41 @@
+services:
+  # -------------------------
+  # BACKEND (Flask Web API)
+  # -------------------------
+  - type: web
+    name: quiz-master-backend
+    env: python
+    plan: free
+    region: frankfurt
+
+    rootDir: backend
+
+    buildCommand: "pip install -r requirements.txt"
+
+    startCommand: "gunicorn server:app --bind 0.0.0.0:$PORT"
+
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10
+      - key: DATABASE_URL
+        sync: false
+      - key: QUIZ_SECRET
+        sync: false
+
+  # -------------------------
+  # FRONTEND (React static site)
+  # -------------------------
+  - type: static_site
+    name: quiz-master-frontend
+    plan: free
+    region: frankfurt
+
+    rootDir: frontend/quiz-frontend
+
+    buildCommand: "npm install && npm run build"
+
+    staticPublishPath: build
+
+    envVars:
+      - key: REACT_APP_API_URL
+        sync: false
