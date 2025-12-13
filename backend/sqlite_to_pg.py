@@ -21,6 +21,6 @@ tables = pd.read_sql(
 for table_name in tables['name']:
     print(f"Migrating {table_name}...")
     df = pd.read_sql(f"SELECT * FROM {table_name}", sqlite_conn)
-    df.to_sql(table_name, pg_engine, if_exists='replace', index=False)
+    df.to_sql(table_name, pg_engine, if_exists='append', index=False)
 
 print("Migration completed successfully.")
