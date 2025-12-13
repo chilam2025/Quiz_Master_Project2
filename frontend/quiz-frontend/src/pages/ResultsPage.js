@@ -2,8 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Confetti from "react-confetti";
 import { motion } from "framer-motion";
-
-const API_URL = "https://quiz-master-project2-backend.onrender.com";
+import API_URL from "../services/api";
 
 export default function ResultsPage() {
   const { user_id, quiz_id } = useParams();
