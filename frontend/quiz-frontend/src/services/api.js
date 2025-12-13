@@ -1,23 +1,30 @@
-const API_URL = "http://127.0.0.1:5000";
+const API_URL = process.env.REACT_APP_API_URL;
+
+if (!API_URL) {
+  console.error("❌ REACT_APP_API_URL is not defined");
+}
 
 export async function getAllQuizzes() {
-  try {
-    const response = await fetch(`${API_URL}/quizzes`);
-    if (!response.ok) throw new Error("Failed to fetch quizzes");
-    return await response.json();
-  } catch (err) {
-    console.error("Error fetching quizzes:", err);
-    return []; // return empty array to avoid blank page
-  }
+  const response = await fetch(`${API_URL}/quizzes`);
+  return response.json();
 }
 
 export async function getQuiz(id) {
-  try {
-    const response = await fetch(`${API_URL}/quizzes/${id}`);
-    if (!response.ok) throw new Error("Failed to fetch quiz");
-    return await response.json();
-  } catch (err) {
-    console.error(`Error fetching quiz ${id}:`, err);
-    return null; // return null if quiz not found
-  }
+  const response = await fetch(`${API_URL}/quizzes/${id}`);
+  return response.json();
 }
+
+// Generic helper (optional but very useful)
+export async function apiFetch(path, options = {}) {
+  const response = await fetch(`${API_URL}${path}`, {
+    headers: {
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+    ...options,
+  });
+
+  return response.json();
+}
+
+export default API_URL;

@@ -2,8 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import Confetti from "react-confetti";
 import { motion } from "framer-motion";
+import API_URL from "../services/api";
 
-const API_URL = "http://127.0.0.1:5000";
 
 export default function HistoryPage() {
   const [attempts, setAttempts] = useState([]);

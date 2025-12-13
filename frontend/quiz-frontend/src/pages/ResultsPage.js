@@ -2,8 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Confetti from "react-confetti";
 import { motion } from "framer-motion";
-
-const API_URL = "http://127.0.0.1:5000";
+import API_URL from "../services/api";
 
 export default function ResultsPage() {
   const { user_id, quiz_id } = useParams();
