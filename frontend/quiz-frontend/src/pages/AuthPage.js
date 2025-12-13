@@ -10,6 +10,11 @@ export default function AuthPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const user = JSON.parse(localStorage.getItem("user"));
+
+if (user?.role === "admin") {
+  // show admin buttons
+}
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -45,10 +50,12 @@ export default function AuthPage() {
           email: data.email,
           token: data.token,
           user_id: data.user_id,
+          role: data.role,
         })
       );
 
-      navigate("/quizzes");
+      navigate("/select-role");
+
     } catch (err) {
       console.error(err);
       setError("Server error");
