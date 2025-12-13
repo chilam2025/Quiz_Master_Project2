@@ -1,11 +1,15 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import AuthPage from "./AuthPage";
-import QuizList from "./QuizList";
 import QuizPage from "./QuizPage";
 import ResultsPage from "./ResultsPage";
 import HistoryPage from "./HistoryPage";
 import Prediction from "./Prediction";
+import RoleSelectPage from "./RolesPage";
+import AdminDashboard from "./AdminDashboard";
+import QuizList from "./QuizList";
+
+
 
 
 // ProtectedRoute ensures only logged-in users can access certain pages
