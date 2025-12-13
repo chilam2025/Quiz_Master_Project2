@@ -18,14 +18,16 @@ import random
 # App & DB setup
 # -------------------------
 app = Flask(__name__)
-CORS(app, origins=["https://quiz-master-project2-frontend.onrender.com"])
-
+CORS(app, origins=[
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "https://quiz-master-project2-frontend.onrender.com"
+])
 # Use environment variable if set, otherwise fall back to your PostgreSQL URL
 app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
     "DATABASE_URL",
-    "postgresql://quiz_db_14ek_user:V1DJtyn9RYFKN2p6Tx1WcoTSZ4NvDAHH@dpg-d4ti9hbuibrs73ano130-a.oregon-postgres.render.com/quiz_db_14ek"
+    "postgresql://quiz_db_14ek_user:V1DJtyn9RYFKN2p6Tx1WcoTSZ4NvDAHH@dpg-d4ti9hbuibrs73ano130-a.oregon-postgres.render.com/quiz_db_14ek?sslmode=require"
 )
-
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("QUIZ_SECRET", "supersecretkey123")
 
@@ -115,14 +117,8 @@ def token_required(f):
 # Auth endpoints
 # -------------------------
 def email_domain_exists(email):
-    try:
-        domain = email.split("@")[1]
-        print(f"Checking MX for domain: {domain}")
-        dns.resolver.resolve(domain, "MX")
-        return True
-    except Exception as e:
-        print(f"MX check failed for {domain}: {e}")
-        return False
+    return True
+
 
 @app.route("/register", methods=["POST"])
 def register():
@@ -158,7 +154,11 @@ def register():
     user = User(email=email)
     user.set_password(password)
     db.session.add(user)
-    db.session.commit()
+    try:
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({"error": f"Database error: {str(e)}"}), 500
 
     return jsonify({
         "message": "Registration successful",
@@ -378,9 +378,6 @@ def create_synthetic_quiz_for_attempt(quiz_title):
     return q.id
 
 @app.route("/module3/generate_synthetic", methods=["POST"])
-@token_required
-
-
 @token_required
 def generate_synthetic():
     """
@@ -636,8 +633,6 @@ def predict_next_score():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-        quizzes = Quiz.query.all()
-        for quiz in quizzes:
-            count = Question.query.filter_by(quiz_id=quiz.id).count()
-            print(f"Quiz {quiz.id} has {count} questions in the database")
-    app.run(debug=True)
+        print(f"Using database: {app.config['SQLALCHEMY_DATABASE_URI']}")
+    print("Backend running on http://127.0.0.1:5000")
+    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
