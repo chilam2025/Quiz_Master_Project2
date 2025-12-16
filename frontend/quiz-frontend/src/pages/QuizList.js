@@ -20,36 +20,37 @@ export default function QuizList() {
     navigate("/");
   };
 
-  const buttonStyle = {
-    marginBottom: "20px",
-    padding: "12px 20px",
-    borderRadius: "6px",
-    background: "#8f94fb",
+  const actionButtonStyle = {
+    width: "260px",
+    padding: "14px",
+    borderRadius: "10px",
     border: "none",
-    color: "white",
+    fontSize: "15px",
     cursor: "pointer",
-    fontSize: "16px",
+    color: "white",
+    background: "linear-gradient(90deg, #4e54c8, #8f94fb)",
     boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
+    marginBottom: "12px",
   };
 
   return (
     <div
       style={{
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
         minHeight: "100vh",
-        paddingTop: "50px",
-        paddingBottom: "50px",
         background: "#f0f4f8",
         fontFamily: "'Poppins', sans-serif",
+        display: "flex",
+        flexDirection: "column",
         justifyContent: "space-between",
+        padding: "50px 20px",
       }}
     >
-      <div>
+      {/* ===== QUIZ LIST ===== */}
+      <div style={{ textAlign: "center" }}>
         <h1 style={{ marginBottom: "30px", color: "#4e54c8" }}>
           Available Quizzes
         </h1>
+
         <div
           style={{
             display: "flex",
@@ -72,7 +73,6 @@ export default function QuizList() {
                 width: "220px",
                 textAlign: "center",
                 boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
-                transition: "box-shadow 0.3s, transform 0.3s",
               }}
             >
               <h2 style={{ color: "#4e54c8", marginBottom: "10px" }}>
@@ -86,39 +86,47 @@ export default function QuizList() {
         </div>
       </div>
 
-      {/* History Button */}
-      <button
-        onClick={() => navigate("/history")}
-        style={buttonStyle}
-      >
-        📊 View My History
-      </button>
-
-      {/* New Prediction Button */}
-      <button
-        onClick={() => navigate("/predict")}
-        style={{ ...buttonStyle, background: "#ff7e5f" }}
-      >
-        📈 View My Prediction
-      </button>
-
-      {/* Logout button */}
-      <button
-        onClick={handleLogout}
+      {/* ===== ACTION PANEL ===== */}
+      <div
         style={{
-          marginTop: "20px",
-          padding: "12px 30px",
-          borderRadius: "8px",
-          border: "none",
-          background: "linear-gradient(90deg, #4e54c8, #8f94fb)",
-          color: "white",
-          fontSize: "16px",
-          cursor: "pointer",
-          boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
+          marginTop: "50px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
         }}
       >
-        Log Out
-      </button>
+        <button
+          style={actionButtonStyle}
+          onClick={() => navigate("/select-role")}
+        >
+          🔙 Back to Roles
+        </button>
+
+        <button
+          style={actionButtonStyle}
+          onClick={() => navigate("/history")}
+        >
+          📊 View My History
+        </button>
+
+        <button
+          style={actionButtonStyle}
+          onClick={() => navigate("/predict")}
+        >
+          📈 View My Prediction
+        </button>
+
+        <button
+          style={{
+            ...actionButtonStyle,
+            background: "#999",
+            marginTop: "10px",
+          }}
+          onClick={handleLogout}
+        >
+          🚪 Log Out
+        </button>
+      </div>
     </div>
   );
 }
