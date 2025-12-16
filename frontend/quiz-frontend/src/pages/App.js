@@ -1,18 +1,16 @@
 import React from "react";
 import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
+
 import AuthPage from "./AuthPage";
+import QuizList from "./QuizList";
 import QuizPage from "./QuizPage";
 import ResultsPage from "./ResultsPage";
 import HistoryPage from "./HistoryPage";
 import Prediction from "./Prediction";
-import RoleSelectPage from "./RolesPage";
+import RolesPage from "./RolesPage";
 import AdminDashboard from "./AdminDashboard";
-import QuizList from "./QuizList";
 
-
-
-
-// ProtectedRoute ensures only logged-in users can access certain pages
+// ProtectedRoute is INSIDE App.js in your project
 function ProtectedRoute({ children }) {
   const user = JSON.parse(localStorage.getItem("user"));
   if (!user || !user.token) {
@@ -25,10 +23,30 @@ function App() {
   return (
     <Router>
       <Routes>
-        {/* Auth Page */}
+        {/* Auth */}
         <Route path="/" element={<AuthPage />} />
 
-        {/* Quizzes List (Protected) */}
+        {/* Role selection */}
+        <Route
+          path="/select-role"
+          element={
+            <ProtectedRoute>
+              <RolesPage />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* Admin dashboard */}
+        <Route
+          path="/admin"
+          element={
+            <ProtectedRoute>
+              <AdminDashboard />
+            </ProtectedRoute>
+          }
+        />
+
+        {/* User routes */}
         <Route
           path="/quizzes"
           element={
@@ -38,7 +56,6 @@ function App() {
           }
         />
 
-        {/* Single Quiz Page (Protected) */}
         <Route
           path="/quiz/:id"
           element={
@@ -48,7 +65,6 @@ function App() {
           }
         />
 
-        {/* Results Page (Protected) */}
         <Route
           path="/results/:user_id/:quiz_id"
           element={
@@ -57,31 +73,29 @@ function App() {
             </ProtectedRoute>
           }
         />
+
         <Route
-           path="/history"
-           element={
-             <ProtectedRoute>
-               <HistoryPage />
-             </ProtectedRoute>
-           }
+          path="/history"
+          element={
+            <ProtectedRoute>
+              <HistoryPage />
+            </ProtectedRoute>
+          }
         />
-       {/* Prediction Page (Protected) */}
-       <Route
-           path="/predict"
-           element={
-          <ProtectedRoute>
-             <Prediction />
-       </ProtectedRoute>
-       }
-      />
 
+        <Route
+          path="/predict"
+          element={
+            <ProtectedRoute>
+              <Prediction />
+            </ProtectedRoute>
+          }
+        />
 
-
-        {/* Redirect unknown routes */}
+        {/* fallback */}
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Router>
-
   );
 }
 
