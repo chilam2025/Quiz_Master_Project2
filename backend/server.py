@@ -70,6 +70,8 @@ class Question(db.Model):
     question = db.Column(db.String(1000), nullable=False)
     options = db.Column(db.Text, nullable=False)  # JSON encoded list
     correct_answer = db.Column(db.Integer, nullable=False)
+    difficulty = db.Column(db.String(50), nullable=False, default="Medium")
+
 
 
 class QuizAttempt(db.Model):
@@ -80,10 +82,12 @@ class QuizAttempt(db.Model):
     total_questions = db.Column(db.Integer, nullable=False)
     percentage = db.Column(db.Float, nullable=False)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    question_order = db.Column(db.JSON, nullable=False)
+    status = db.Column(db.String(20), default="in_progress")
 
-    __table_args__ = (
-        db.UniqueConstraint("quiz_id", "user_id", name="unique_user_quiz"),
-    )
+    #__table_args__ = (
+        #db.UniqueConstraint("quiz_id", "user_id", name="unique_user_quiz"),
+    #)
 
 # -------------------------
 # Helpers: token generation + decorator
@@ -226,32 +230,180 @@ def add_question(quiz_id):
 # -------------------------
 # Public read endpoints
 # -------------------------
+
+
+@app.route("/quizzes/<int:quiz_id>/start", methods=["POST"])
+@token_required
+def start_quiz(quiz_id):
+    current_user = request.current_user
+    data = request.get_json() or {}
+
+    difficulty = data.get("difficulty", "Medium").capitalize()
+    valid_levels = ["Very Easy", "Easy", "Medium", "Hard"]
+
+    if difficulty not in valid_levels:
+        return jsonify({"error": "Invalid difficulty"}), 400
+
+    # ❗ Only reuse ACTIVE attempt
+    attempt = QuizAttempt.query.filter_by(
+        quiz_id=quiz_id,
+        user_id=current_user.id,
+        status="in_progress"
+    ).first()
+
+    if not attempt:
+        attempt = QuizAttempt(
+            quiz_id=quiz_id,
+            user_id=current_user.id,
+            score=0,
+            total_questions=0,
+            percentage=0,
+            question_order=[],
+            status="in_progress"
+        )
+        db.session.add(attempt)
+        db.session.commit()
+
+    # Always generate NEW question order for NEW attempt
+    questions = Question.query.filter_by(
+        quiz_id=quiz_id,
+        difficulty=difficulty
+    ).all()
+
+    if not questions:
+        return jsonify({"error": "No questions available"}), 404
+
+    selected = random.sample(questions, min(20, len(questions)))
+
+    attempt.question_order = [q.id for q in selected]
+    attempt.total_questions = len(selected)
+    attempt.timestamp = datetime.utcnow()
+
+    db.session.commit()
+
+    return jsonify({
+        "attempt_id": attempt.id,
+        "total_questions": attempt.total_questions
+    }), 200
+
+
 @app.route("/quizzes", methods=["GET"])
 def get_quizzes():
     quizzes = Quiz.query.filter(
         Quiz.title.notlike("%Synthetic%")
     ).all()
-    return jsonify([{"id": q.id, "title": q.title, "description": q.description} for q in quizzes])
+
+    result = []
+
+    for q in quizzes:
+        question_count = Question.query.filter_by(quiz_id=q.id).count()
+        if question_count > 0:
+            result.append({
+                "id": q.id,
+                "title": q.title,
+                "description": q.description,
+                "total_questions": question_count
+            })
+
+    return jsonify(result)
+
 
 @app.route("/quizzes/<int:quiz_id>", methods=["GET"])
 def get_quiz(quiz_id):
     quiz = Quiz.query.get(quiz_id)
     if not quiz:
         return jsonify({"error": "Quiz not found"}), 404
-    questions = Question.query.filter_by(quiz_id=quiz_id).order_by(Question.id.asc()).all()
-    questions_list = [{"id": q.id, "question": q.question, "options": json.loads(q.options)} for q in questions]
-    return jsonify({"id": quiz.id, "title": quiz.title, "description": quiz.description, "questions": questions_list})
+
+    questions = Question.query.filter_by(quiz_id=quiz_id).all()
+    random.shuffle(questions)  # shuffle questions
+
+    questions_list = [
+        {"id": q.id, "question": q.question, "options": json.loads(q.options)}
+        for q in questions
+    ]
+
+    return jsonify({
+        "id": quiz.id,
+        "title": quiz.title,
+        "description": quiz.description,
+        "questions": questions_list
+    })
 
 # Single question (index) endpoint - useful for one-question-per-page UI
-@app.route("/quizzes/<int:quiz_id>/question/<int:index>", methods=["GET"])
-def get_quiz_question(quiz_id, index):
-    questions = Question.query.filter_by(quiz_id=quiz_id).order_by(Question.id.asc()).all()
-    if not questions:
-        return jsonify({"error": "Quiz not found or has no questions"}), 404
-    if index < 0 or index >= len(questions):
+
+#Getting the questions by difficulty and randomizes them
+from sqlalchemy import not_
+
+@app.route("/quizzes/<int:quiz_id>/questions/random/<difficulty>", methods=["GET"])
+@token_required
+def get_random_questions(quiz_id, difficulty):
+    current_user = request.current_user
+
+    attempt = QuizAttempt.query.filter_by(
+        quiz_id=quiz_id,
+        user_id=current_user.id,
+        status="in_progress"
+    ).first()
+
+    if not attempt:
+        return jsonify({"error": "No active quiz attempt"}), 400
+
+    if not attempt.question_order:
+        return jsonify({"error": "Quiz not initialized"}), 400
+
+    questions = Question.query.filter(
+        Question.id.in_(attempt.question_order)
+    ).all()
+
+    question_map = {q.id: q for q in questions}
+
+    ordered_questions = [
+        question_map[qid]
+        for qid in attempt.question_order
+        if qid in question_map
+    ]
+
+    return jsonify({
+        "questions": [
+            {
+                "id": q.id,
+                "question": q.question,
+                "options": json.loads(q.options)
+            }
+            for q in ordered_questions
+        ]
+    }), 200
+
+@app.route(
+    "/quizzes/<int:quiz_id>/attempts/<int:attempt_id>/question/<int:index>",
+    methods=["GET"]
+)
+@token_required
+def get_attempt_question(quiz_id, attempt_id, index):
+    current_user = request.current_user
+
+    attempt = QuizAttempt.query.filter_by(
+        id=attempt_id,
+        quiz_id=quiz_id,
+        user_id=current_user.id
+    ).first()
+
+    if not attempt:
+        return jsonify({"error": "Attempt not found"}), 404
+
+    if index < 0 or index >= len(attempt.question_order):
         return jsonify({"error": "Question index out of range"}), 400
-    q = questions[index]
-    return jsonify({"id": q.id, "index": index, "question": q.question, "options": json.loads(q.options), "total_questions": len(questions)})
+
+    question_id = attempt.question_order[index]
+    q = Question.query.get_or_404(question_id)
+
+    return jsonify({
+        "id": q.id,
+        "index": index,
+        "question": q.question,
+        "options": json.loads(q.options),
+        "total_questions": len(attempt.question_order)
+    })
 
 # -------------------------
 # Submission & attempts (protected)
@@ -261,31 +413,59 @@ def get_quiz_question(quiz_id, index):
 def submit_quiz(quiz_id):
     data = request.get_json() or {}
     submitted_answers = data.get("answers")
+
     if not isinstance(submitted_answers, list):
         return jsonify({"error": "Answers must be a list"}), 400
-    # load questions in stable order
-    questions = Question.query.filter_by(quiz_id=quiz_id).order_by(Question.id.asc()).all()
-    if not questions:
-        return jsonify({"error": "Quiz not found or has no questions"}), 404
-    if len(submitted_answers) != len(questions):
-        return jsonify({"error": "Answer all questions"}), 400
+
     current_user = request.current_user
-    # prevent double submission
-    existing = QuizAttempt.query.filter_by(quiz_id=quiz_id, user_id=current_user.id).first()
-    if existing:
-        return jsonify({"error": "You already submitted this quiz"}), 400
+
+    # 🔹 Get or create attempt
+    attempt = QuizAttempt.query.filter_by(
+        quiz_id=quiz_id,
+        user_id=current_user.id,
+        status="in_progress"
+    ).first()
+
+    if not attempt:
+        return jsonify({"error": "Quiz not started"}), 400
+
+    if not attempt.question_order:
+        return jsonify({"error": "No active quiz attempt"}), 400
+
+    question_ids = attempt.question_order
+
+    questions = Question.query.filter(
+        Question.id.in_(question_ids)
+    ).all()
+
+    if len(submitted_answers) != len(question_ids):
+        return jsonify({"error": "Answer all questions"}), 400
+
+    question_map = {q.id: q for q in questions}
+
     score = 0
-    for q, a in zip(questions, submitted_answers):
-        try:
-            ai = int(a)
-        except Exception:
-            ai = -1
-        if ai == q.correct_answer:
+    for qid, ans in zip(question_ids, submitted_answers):
+        if int(ans) == question_map[qid].correct_answer:
             score += 1
-    attempt = QuizAttempt(quiz_id=quiz_id, user_id=current_user.id, score=score, total_questions=len(questions), percentage=(score/len(questions))*100)
-    db.session.add(attempt)
+
+    attempt.score = score
+    attempt.total_questions = len(question_ids)
+    attempt.percentage = (score / len(question_ids)) * 100
+    attempt.timestamp = datetime.utcnow()
+
+    # ✅ reset AFTER grading
+    attempt.status = "submitted"
+
     db.session.commit()
-    return jsonify({"user_id": current_user.id, "quiz_id": quiz_id, "score": score, "total": len(questions)}), 200
+
+    return jsonify({
+        "user_id": current_user.id,
+        "quiz_id": quiz_id,
+        "score": score,
+        "total": len(question_ids)
+    }), 200
+
+
 
 @app.route("/users/<int:user_id>/attempts", methods=["GET"])
 @token_required
@@ -296,8 +476,16 @@ def get_user_attempts(user_id):
     attempts = QuizAttempt.query.filter_by(user_id=user_id).all()
     result = []
     for a in attempts:
-        total = Question.query.filter_by(quiz_id=a.quiz_id).count()
-        result.append({"quiz_id": a.quiz_id, "score": a.score, "total": total, "timestamp": a.timestamp.isoformat()
+        total = total = a.total_questions
+
+        result.append({
+            "quiz_id": a.quiz_id,
+            "score": a.score,
+            "total":a.total_questions,
+            "percentage":a.percentage,
+            "status":a.status,
+            "timestamp": a.timestamp.isoformat()
+
 })
     return jsonify(result)
 
@@ -328,29 +516,24 @@ def update_quiz(quiz_id):
 @app.route("/quizzes/<int:quiz_id>/questions/bulk", methods=["POST"])
 def add_questions_bulk(quiz_id):
     data = request.get_json()
-
-    if not isinstance(data, list):
-        return jsonify({"error": "Expected a list of questions"}), 400
-
     quiz = Quiz.query.get(quiz_id)
     if not quiz:
         return jsonify({"error": "Quiz not found"}), 404
 
+    valid_difficulties = ["Very Easy", "Easy", "Medium", "Hard"]
     created = []
 
     for item in data:
         question_text = item.get("question_text")
         options = item.get("options")
         correct = item.get("correct_answer")
+        difficulty = item.get("difficulty", "Medium")
 
         if not question_text or not options or correct is None:
-            return jsonify({"error": "Missing fields in one of the questions"}), 400
+            return jsonify({"error": "Missing fields"}), 400
 
-        if not isinstance(options, list) or len(options) < 2:
-            return jsonify({"error": "Options must be a list with at least 2 items"}), 400
-
-        if correct not in options:
-            return jsonify({"error": "correct_answer must be one of the options"}), 400
+        if difficulty not in valid_difficulties:
+            return jsonify({"error": f"Invalid difficulty: {difficulty}"}), 400
 
         correct_index = options.index(correct)
 
@@ -358,18 +541,14 @@ def add_questions_bulk(quiz_id):
             quiz_id=quiz_id,
             question=question_text,
             options=json.dumps(options),
-            correct_answer=correct_index
+            correct_answer=correct_index,
+            difficulty=difficulty
         )
-
         db.session.add(q)
-        created.append(question_text)
+        created.append({"question": question_text, "difficulty": difficulty})
 
     db.session.commit()
-
-    return jsonify({
-        "message": f"{len(created)} questions added successfully",
-        "questions_added": created
-    }), 201
+    return jsonify({"message": f"{len(created)} questions added", "questions": created}), 201
 
 
 
@@ -633,7 +812,226 @@ def predict_next_score():
     }), 200
 
 
+# ===========================================
+# AI + USER INSIGHTS MODULE (NEW FEATURES)
+# ===========================================
 
+
+
+
+# -------------------------------------------------------
+# 1. Weighted Average Prediction
+# -------------------------------------------------------
+def weighted_average_prediction(scores):
+    if len(scores) == 0:
+        return None
+
+    weights = np.arange(1, len(scores) + 1)  # 1,2,3...n
+    weighted_avg = np.dot(scores, weights) / weights.sum()
+    return round(weighted_avg, 2)
+
+
+# -------------------------------------------------------
+# 2. Smart Difficulty Recommendation
+# -------------------------------------------------------
+def recommend_difficulty(predicted_score):
+    if predicted_score is None:
+        return "Easy"
+
+    if predicted_score >= 80:
+        return "Hard"
+    elif predicted_score >= 60:
+        return "Medium"
+    else:
+        return "Easy"
+
+
+# -------------------------------------------------------
+# 3. Personal Learning Style Detection
+# -------------------------------------------------------
+def detect_learning_style(scores):
+    if len(scores) < 3:
+        return "Not enough data"
+
+    trend = scores[-1] - scores[-3]
+
+    if trend > 10:
+        return "Fast Improver"
+    elif trend < -10:
+        return "Struggling Recently"
+    elif np.std(scores) < 8:
+        return "Consistent Learner"
+    else:
+        return "Inconsistent Learner"
+
+
+# -------------------------------------------------------
+# 4. Weak Topic Analysis
+# -------------------------------------------------------
+def find_weak_topics(attempts):
+    topic_scores = {}
+
+    for att in attempts:
+        topic = att.topic
+        score = att.score
+
+        if topic not in topic_scores:
+            topic_scores[topic] = []
+        topic_scores[topic].append(score)
+
+    weak = []
+    for t, vals in topic_scores.items():
+        avg = sum(vals) / len(vals)
+        if avg < 60:
+            weak.append({"topic": t, "avg_score": round(avg, 2)})
+
+    return weak
+
+
+# -------------------------------------------------------
+# 5. Adaptive Quiz Generation
+# -------------------------------------------------------
+def adaptive_quiz_config(difficulty, weak_topics):
+    return {
+        "difficulty": difficulty,
+        "focus_topics": [t["topic"] for t in weak_topics[:2]]  # pick top 2 weak
+    }
+
+
+# -------------------------------------------------------
+# 6. Personalized Study Tips
+# -------------------------------------------------------
+def study_tips(scores, weak_topics):
+    tips = []
+
+    if len(scores) >= 2 and scores[-1] < scores[-2]:
+        tips.append("Your last score dropped — consider reviewing hard topics.")
+
+    if weak_topics:
+        tips.append(f"Practice more: {', '.join([t['topic'] for t in weak_topics])}")
+
+    if len(scores) >= 4 and np.mean(scores[-4:]) >= 80:
+        tips.append("Excellent consistency — try challenging quizzes!")
+
+    if not tips:
+        tips.append("Keep practicing regularly to improve steadily.")
+
+    return tips
+
+
+# -------------------------------------------------------
+# 7. Anomaly Detection
+# -------------------------------------------------------
+def detect_anomaly(scores):
+    if len(scores) < 3:
+        return None
+
+    last = scores[-1]
+    avg_prev = np.mean(scores[:-1])
+
+    if last < avg_prev - 20:
+        return "Sudden Performance Drop"
+    elif last > avg_prev + 20:
+        return "Unusual Score Spike"
+    return None
+
+
+# -------------------------------------------------------
+# 8. Recommendation Engine
+# -------------------------------------------------------
+def recommend_quiz(predicted_score, weak_topics):
+    if predicted_score is None:
+        return {"title": "Beginner Starter Quiz", "reason": "New user"}
+
+    if weak_topics:
+        return {
+            "title": f"{weak_topics[0]['topic']} Basics",
+            "reason": f"You are weak in {weak_topics[0]['topic']}"
+        }
+
+    if predicted_score < 60:
+        return {"title": "Fundamental Concepts Quiz", "reason": "Improve basics"}
+
+    if predicted_score < 80:
+        return {"title": "Intermediate Practice Quiz", "reason": "Match your level"}
+
+    return {"title": "Advanced Challenge Quiz", "reason": "You seem ready!"}
+
+
+# -------------------------------------------------------
+# 9. Streak Tracking System
+# -------------------------------------------------------
+def calculate_streak(attempts):
+    if not attempts:
+        return 0
+
+    attempts_sorted = sorted(attempts, key=lambda x: x.timestamp, reverse=True)
+    streak = 1
+    last_date = attempts_sorted[0].timestamp.date()
+
+    for att in attempts_sorted[1:]:
+        cur_date = att.timestamp.date()
+        if (last_date - cur_date).days == 1:
+            streak += 1
+            last_date = cur_date
+        else:
+            break
+
+    return streak
+
+
+# -------------------------------------------------------
+# 10. Category-Based Score Tracking
+# -------------------------------------------------------
+def category_performance(attempts):
+    categories = {}
+
+    for att in attempts:
+        cat = att.topic
+        if cat not in categories:
+            categories[cat] = []
+        categories[cat].append(att.score)
+
+    return {
+        cat: round(sum(v) / len(v), 2)
+        for cat, v in categories.items()
+    }
+
+
+# =====================================================
+# MAIN ANALYTICS ENDPOINT
+# =====================================================
+
+@app.route("/analytics", methods=["GET"])
+@token_required
+def analytics(user):
+    attempts = QuizAttempt.query.filter_by(user_id=user.id).all()
+    scores = [a.score for a in attempts]
+
+    # AI MODULE COMPUTATION
+    predicted = weighted_average_prediction(scores)
+    difficulty = recommend_difficulty(predicted)
+    learning_style = detect_learning_style(scores)
+    weak = find_weak_topics(attempts)
+    tips = study_tips(scores, weak)
+    anomaly = detect_anomaly(scores)
+    quiz_rec = recommend_quiz(predicted, weak)
+    streak = calculate_streak(attempts)
+    category_perf = category_performance(attempts)
+    adaptive_config = adaptive_quiz_config(difficulty, weak)
+
+    return jsonify({
+        "predicted_score": predicted,
+        "difficulty": difficulty,
+        "learning_style": learning_style,
+        "weak_topics": weak,
+        "study_tips": tips,
+        "anomaly": anomaly,
+        "recommended_quiz": quiz_rec,
+        "streak": streak,
+        "category_performance": category_perf,
+        "adaptive_quiz": adaptive_config
+    })
 
 
 # -------------------------
@@ -642,6 +1040,12 @@ def predict_next_score():
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
+        quizzes = Quiz.query.all()
+        for quiz in quizzes:
+            count = Question.query.filter_by(quiz_id=quiz.id).count()
+            #print(f"Quiz {quiz.id} has {count} questions in the database")
+    app.run(debug=True)
+
         print(f"Using database: {app.config['SQLALCHEMY_DATABASE_URI']}")
     print("Backend running on http://127.0.0.1:5000")
     app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
