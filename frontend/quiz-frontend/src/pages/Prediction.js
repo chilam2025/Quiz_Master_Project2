@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import API_URL from "../services/api";
+import {LineChart,Line,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer,} from "recharts";
+const API_URL = "http://127.0.0.1:5000";
 
 export default function Prediction() {
   const navigate = useNavigate();
@@ -26,6 +26,12 @@ export default function Prediction() {
         return;
       }
 
+      // User has never attempted any quiz
+      if (res.status === 404) {
+        setPrediction({ noAttempts: true });
+        return;
+      }
+
       const data = await res.json();
 
       setPrediction({
@@ -44,6 +50,7 @@ export default function Prediction() {
     getPrediction();
   }, []);
 
+  // ---------------- UI STYLES ----------------
   const containerStyle = {
     padding: "20px",
     display: "flex",
@@ -111,6 +118,9 @@ export default function Prediction() {
     transition: "width 0.5s ease-in-out",
   });
 
+  // ---------------- UI STATES ----------------
+
+  // ⏳ Loading state
   if (!prediction) {
     return (
       <div style={containerStyle}>
@@ -122,11 +132,51 @@ export default function Prediction() {
     );
   }
 
-  // Prepare data for trend chart
-  const chartData = prediction.history?.map((h) => ({
-    name: `Attempt ${h.attempt_index}`,
-    percentage: h.percentage,
-  })) || [];
+  // ❌ User has not attempted ANY quiz
+  if (prediction.noAttempts) {
+    return (
+      <div style={containerStyle}>
+        <div style={cardStyle}>
+          <h2 style={titleStyle}>Performance Prediction</h2>
+
+          <div style={statBox}>
+            <strong>No performance prediction available.</strong>
+            <br />
+            You haven't attempted any quiz yet.
+          </div>
+
+          {/* ⭐ CTA Button */}
+          <button
+            style={{
+              marginTop: "20px",
+              background: "linear-gradient(90deg, #ff7b00, #ffbb00)",
+              padding: "14px 35px",
+              border: "none",
+              borderRadius: "12px",
+              fontWeight: "bold",
+              color: "white",
+              cursor: "pointer",
+              fontSize: "18px",
+              boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
+              transition: "transform 0.2s ease",
+            }}
+            onClick={() => navigate("/quizzes")}
+            onMouseEnter={(e) => (e.target.style.transform = "scale(1.05)")}
+            onMouseLeave={(e) => (e.target.style.transform = "scale(1)")}
+          >
+            🚀 Start Your First Quiz
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Prepare chart data
+  const chartData =
+    prediction.history?.map((h) => ({
+      name: `Attempt ${h.attempt_index}`,
+      percentage: h.percentage,
+    })) || [];
 
   if (prediction.predicted_percentage !== undefined) {
     chartData.push({
@@ -135,6 +185,7 @@ export default function Prediction() {
     });
   }
 
+  // ---------------- MAIN UI ----------------
   return (
     <div style={containerStyle}>
       <div style={cardStyle}>
@@ -148,24 +199,31 @@ export default function Prediction() {
 
         {prediction.predicted_percentage !== undefined && (
           <div style={statBox}>
-             <strong>Predicted Percentage:</strong> {prediction.predicted_percentage}%
-             <div style={progressBarContainer}>
-               <div style={progressBarFill(prediction.predicted_percentage)}></div>
-             </div>
+            <strong>Predicted Percentage:</strong>{" "}
+            {prediction.predicted_percentage}%
+            <div style={progressBarContainer}>
+              <div
+                style={progressBarFill(prediction.predicted_percentage)}
+              ></div>
+            </div>
           </div>
         )}
 
-        {prediction.predicted_score !== undefined && prediction.total_questions !== undefined && (
-          <div style={statBox}>
-            <strong>Expected Score:</strong> {prediction.predicted_score} / {prediction.total_questions}
-          </div>
-        )}
+        {prediction.predicted_score !== undefined &&
+          prediction.total_questions !== undefined && (
+            <div style={statBox}>
+              <strong>Expected Score:</strong> {prediction.predicted_score} /{" "}
+              {prediction.total_questions}
+            </div>
+          )}
 
-        {prediction.next_attempt_index !== null && prediction.next_attempt_index !== undefined && (
-          <div style={statBox}>
-            <strong>Next Attempt Index:</strong> {prediction.next_attempt_index}
-          </div>
-        )}
+        {prediction.next_attempt_index !== null &&
+          prediction.next_attempt_index !== undefined && (
+            <div style={statBox}>
+              <strong>Next Attempt Index:</strong>{" "}
+              {prediction.next_attempt_index}
+            </div>
+          )}
 
         {prediction.trend && (
           <div style={statBox}>
@@ -176,7 +234,8 @@ export default function Prediction() {
         {prediction.recommendation && (
           <>
             <div style={statBox}>
-              <strong>Difficulty Recommendation:</strong> {prediction.recommendation.difficulty}
+              <strong>Difficulty Recommendation:</strong>{" "}
+              {prediction.recommendation.difficulty}
             </div>
             <div style={statBox}>
               <strong>Reason:</strong> {prediction.recommendation.reason}
@@ -186,12 +245,21 @@ export default function Prediction() {
 
         <div style={{ marginTop: "20px", height: "250px", width: "100%" }}>
           <ResponsiveContainer width="100%" height="100%">
-            <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+            <LineChart
+              data={chartData}
+              margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="name" />
               <YAxis domain={[0, 100]} />
               <Tooltip />
-              <Line type="monotone" dataKey="percentage" stroke="#0066ff" strokeWidth={3} activeDot={{ r: 6 }} />
+              <Line
+                type="monotone"
+                dataKey="percentage"
+                stroke="#0066ff"
+                strokeWidth={3}
+                activeDot={{ r: 6 }}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
