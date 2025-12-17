@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import Confetti from "react-confetti";
 import { motion } from "framer-motion";
@@ -6,69 +6,72 @@ import API_URL from "../services/api";
 
 export default function ResultsPage() {
   const { user_id, quiz_id } = useParams();
-  const [scoreData, setScoreData] = useState(null);
-  const [attempts, setAttempts] = useState([]);
-  const [average, setAverage] = useState(0);
   const navigate = useNavigate();
+
+  const [scoreData, setScoreData] = useState(null);
+  const [average, setAverage] = useState(0);
 
   const user = JSON.parse(localStorage.getItem("user"));
   const token = user?.token;
 
+  // 🔒 Prevent double-setting in React 18 StrictMode
+  const hasLoaded = useRef(false);
+
   useEffect(() => {
-    async function fetchScore() {
-      if (!token) return;
+    if (!token || hasLoaded.current) return;
+
+    hasLoaded.current = true;
+
+    async function fetchResults() {
       try {
-        // Fetch all attempts
         const res = await fetch(`${API_URL}/users/${user_id}/attempts`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
         });
+
         const history = await res.json();
-        setAttempts(history);
 
-        console.log("Fetched history:", history);
-        console.log("Current quiz_id:", quiz_id);
-
-        // Compute average score
+        // Average score
         if (history.length > 0) {
           const avg =
             history.reduce((sum, a) => sum + a.score, 0) / history.length;
           setAverage(avg.toFixed(2));
         }
 
-        // Filter attempts for this quiz and pick the latest one
-        const quizAttempts = history
-          .filter((a) => Number(a.quiz_id) === Number(quiz_id))
-          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // latest first
+        // Get latest attempt for this quiz
+        const latestAttempt = history
+          .filter(a => Number(a.quiz_id) === Number(quiz_id))
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
 
-        const latestAttempt = quizAttempts[0];
-
-        console.log("Latest attempt:", latestAttempt);
+        if (!latestAttempt) {
+          setScoreData({ score: 0, total: 0 });
+          return;
+        }
 
         setScoreData({
-          score: latestAttempt ? latestAttempt.score : 0,
-          total: latestAttempt ? latestAttempt.total : 0,
+          score: latestAttempt.score,
+          total: latestAttempt.total,
         });
       } catch (err) {
-        console.error(err);
-        setScoreData({
-          score: 0,
-          total: 0,
-        });
+        console.error("Failed to load results:", err);
+        setScoreData({ score: 0, total: 0 });
       }
     }
 
-    fetchScore();
+    fetchResults();
   }, [user_id, quiz_id, token]);
 
-  if (!scoreData)
+  // Loading state
+  if (!scoreData) {
     return (
       <p style={{ textAlign: "center", marginTop: "50px" }}>
         Loading results...
       </p>
     );
+  }
 
-  const showThumbsDown = scoreData.score < 15;
-  const isGood = !showThumbsDown;
+  const isGood = scoreData.score >= 15;
 
   return (
     <div
@@ -80,13 +83,18 @@ export default function ResultsPage() {
         background: "#f0f4f8",
       }}
     >
-      {isGood && <Confetti width={window.innerWidth} height={window.innerHeight} />}
+      {isGood && (
+        <Confetti width={window.innerWidth} height={window.innerHeight} />
+      )}
 
       <motion.h1
         initial={{ y: -50, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
         transition={{ duration: 0.7 }}
-        style={{ fontSize: "36px", color: isGood ? "#4CAF50" : "#FF3B3B" }}
+        style={{
+          fontSize: "36px",
+          color: isGood ? "#4CAF50" : "#FF3B3B",
+        }}
       >
         {isGood ? "🎉 Congratulations!" : "😢 Better luck next time!"}
       </motion.h1>
@@ -110,17 +118,6 @@ export default function ResultsPage() {
           ? "You did amazing! Keep it up 👍"
           : "Don't worry, practice makes perfect 💪"}
       </motion.p>
-
-      {showThumbsDown && (
-        <motion.img
-          src="/thumbs-down.png"
-          alt="Try Again"
-          initial={{ y: -20, opacity: 0 }}
-          animate={{ y: 0, opacity: 1 }}
-          transition={{ duration: 0.7, delay: 0.5 }}
-          style={{ width: "120px", marginTop: "20px" }}
-        />
-      )}
 
       <motion.button
         onClick={() => navigate("/quizzes")}
