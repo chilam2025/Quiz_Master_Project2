@@ -6,42 +6,109 @@ export default function QuizPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [quiz, setQuiz] = useState(null);
+  const [questions, setQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const user = JSON.parse(localStorage.getItem("user"));
   const token = user?.token;
 
-  // 🔹 Fetch ALL questions once
-  useEffect(() => {
-    async function fetchQuiz() {
-      try {
-        const res = await fetch(`${API_URL}/quizzes/${id}`);
-        const data = await res.json();
+  const difficulty =
+    new URLSearchParams(window.location.search).get("difficulty") || "Medium";
 
-        if (res.ok) {
-          setQuiz(data);
-        } else {
-          console.error(data.error);
+  // ✅ STEP 1: start quiz (create attempt)
+  const startQuiz = async () => {
+    const res = await fetch(`${API_URL}/quizzes/${id}/start`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ difficulty }),
+    });
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to start quiz");
+  };
+
+  // ✅ STEP 2: fetch questions
+  const fetchQuestions = async () => {
+    const res = await fetch(
+      `${API_URL}/quizzes/${id}/questions/random/${difficulty}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      }
+    );
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to fetch questions");
+
+    return data.questions || [];
+  };
+
+  useEffect(() => {
+    async function loadQuiz() {
+      if (!token) return;
+
+      try {
+        setLoading(true);
+        setError("");
+
+        await startQuiz();                 // 🔑 CRITICAL
+        const qs = await fetchQuestions();
+
+        if (qs.length === 0) {
+          setError("No questions available. Try again.");
         }
+
+        setQuestions(qs);
       } catch (err) {
         console.error(err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
       }
     }
 
-    fetchQuiz();
-  }, [id]);
+    loadQuiz();
+  }, [id, difficulty, token]);
 
-  if (!quiz)
+  // ---------------- UI STATES ----------------
+
+  if (loading) {
     return (
       <p style={{ textAlign: "center", marginTop: "50px" }}>
         Loading questions...
       </p>
     );
+  }
 
-  const question = quiz.questions[currentQuestionIndex];
+  if (error) {
+    return (
+      <div style={{ textAlign: "center", marginTop: "50px" }}>
+        <p style={{ color: "red" }}>{error}</p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            padding: "10px 20px",
+            borderRadius: "8px",
+            border: "none",
+            background: "#4e54c8",
+            color: "white",
+            cursor: "pointer",
+          }}
+        >
+          Retry Quiz
+        </button>
+      </div>
+    );
+  }
+
+  const question = questions[currentQuestionIndex];
+
+  // ---------------- HANDLERS ----------------
 
   const handleAnswerSelect = (optionIndex) => {
     setAnswers({ ...answers, [question.id]: optionIndex });
@@ -50,27 +117,23 @@ export default function QuizPage() {
 
   const handleNext = () => {
     if (answers[question.id] === undefined) {
-      setError("⚠️ Please choose an answer before moving on.");
+      setError("⚠️ Please choose an answer.");
       return;
     }
     setCurrentQuestionIndex((prev) => prev + 1);
   };
 
   const handlePrev = () => {
-    if (currentQuestionIndex > 0)
-      setCurrentQuestionIndex((prev) => prev - 1);
+    setCurrentQuestionIndex((prev) => prev - 1);
   };
 
   const handleSubmit = async () => {
-    if (!token) {
-      alert("You must login first.");
+    if (questions.some((q) => answers[q.id] === undefined)) {
+      setError("⚠️ Answer all questions.");
       return;
     }
 
-    if (Object.keys(answers).length !== quiz.questions.length) {
-      setError("⚠️ Please answer all questions before submitting.");
-      return;
-    }
+    const answersList = questions.map((q) => answers[q.id]);
 
     try {
       const res = await fetch(`${API_URL}/quizzes/${id}/submit`, {
@@ -79,74 +142,38 @@ export default function QuizPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({
-          answers: quiz.questions.map((q) => answers[q.id]),
-        }),
+        body: JSON.stringify({ answers: answersList }),
       });
 
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
 
-      if (res.ok) {
-        navigate(`/results/${data.user_id}/${data.quiz_id}`);
-      } else {
-        alert(data.error || "Error submitting quiz");
-      }
+      navigate(`/results/${data.user_id}/${data.quiz_id}`);
     } catch (err) {
-      console.error(err);
-      alert("Server error");
+      alert(err.message || "Submission failed");
     }
   };
 
-  return (
-    <div
-      style={{
-        maxWidth: "700px",
-        margin: "50px auto",
-        fontFamily: "'Poppins', sans-serif",
-        textAlign: "center",
-        padding: "30px",
-        background: "#f0f4f8",
-        borderRadius: "12px",
-        boxShadow: "0 10px 25px rgba(0,0,0,0.1)",
-      }}
-    >
-      <h1 style={{ color: "#4e54c8" }}>{quiz.title}</h1>
+  // ---------------- UI ----------------
 
-      <p style={{ marginBottom: "20px" }}>
-        Question {currentQuestionIndex + 1} of {quiz.questions.length}
+  return (
+    <div style={{ maxWidth: "700px", margin: "40px auto", textAlign: "center" }}>
+      <h2>Hello {user.email}</h2>
+
+      <p>
+        Question {currentQuestionIndex + 1} of {questions.length}
       </p>
 
-      <div
-        style={{
-          background: "white",
-          padding: "20px",
-          borderRadius: "12px",
-          textAlign: "left",
-        }}
-      >
-        <p style={{ fontWeight: "bold" }}>{question.question}</p>
+      <div style={{ background: "#fff", padding: "20px", borderRadius: "10px" }}>
+        <p><b>{question.question}</b></p>
 
         {question.options.map((opt, i) => (
-          <label
-            key={i}
-            style={{
-              display: "block",
-              marginBottom: "10px",
-              padding: "10px",
-              borderRadius: "8px",
-              background:
-                answers[question.id] === i ? "#8f94fb" : "#f5f5f5",
-              color: answers[question.id] === i ? "white" : "#333",
-              cursor: "pointer",
-            }}
-          >
+          <label key={i} style={{ display: "block", margin: "10px 0" }}>
             <input
               type="radio"
-              name={`q_${question.id}`}
               checked={answers[question.id] === i}
               onChange={() => handleAnswerSelect(i)}
-              style={{ marginRight: "10px" }}
-            />
+            />{" "}
             {opt}
           </label>
         ))}
@@ -158,17 +185,10 @@ export default function QuizPage() {
         {currentQuestionIndex > 0 && (
           <button onClick={handlePrev}>Previous</button>
         )}
-
-        {currentQuestionIndex < quiz.questions.length - 1 && (
-          <button onClick={handleNext} style={{ marginLeft: "10px" }}>
-            Next
-          </button>
-        )}
-
-        {currentQuestionIndex === quiz.questions.length - 1 && (
-          <button onClick={handleSubmit} style={{ marginLeft: "10px" }}>
-            Submit Quiz
-          </button>
+        {currentQuestionIndex < questions.length - 1 ? (
+          <button onClick={handleNext}>Next</button>
+        ) : (
+          <button onClick={handleSubmit}>Submit Quiz</button>
         )}
       </div>
     </div>
