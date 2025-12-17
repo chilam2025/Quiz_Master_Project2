@@ -2,21 +2,21 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getAllQuizzes } from "../services/api";
 import { motion } from "framer-motion";
-const API_URL = "http://127.0.0.1:5000";
 
+const API_URL = "http://127.0.0.1:5000";
 
 export default function QuizList() {
   const [quizzes, setQuizzes] = useState([]);
   const [selectedQuiz, setSelectedQuiz] = useState(null);
   const [selectedDifficulty, setSelectedDifficulty] = useState("");
-  const navigate = useNavigate();
 
-  const token = localStorage.getItem("token"); // assume token is saved here
+  const navigate = useNavigate();
+  const token = localStorage.getItem("token");
 
   useEffect(() => {
     async function fetchQuizzes() {
       const data = await getAllQuizzes();
-      setQuizzes(data);
+      setQuizzes(data || []);
     }
     fetchQuizzes();
   }, []);
@@ -37,25 +37,25 @@ export default function QuizList() {
     color: "white",
     background: "linear-gradient(90deg, #4e54c8, #8f94fb)",
     boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
-    marginBottom: "12px",
   };
 
-  // Optional helper to fetch a random question (can be used in quiz page)
+  // Optional helper (not used here directly)
   const fetchRandomQuestion = async (quizId, difficulty) => {
     try {
       const res = await fetch(
-  `${API_URL}/quizzes/${quizId}/questions/random/${difficulty}`, // ← comma here
-  {
-    headers: { Authorization: `Bearer ${token}` },
-  }
-);
+        `${API_URL}/quizzes/${quizId}/questions/random/${difficulty}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
 
       if (!res.ok) {
         const err = await res.json();
         throw new Error(err.error || "Failed to fetch question");
       }
+
       const data = await res.json();
-      return data.question; // { id, question, options }
+      return data.question;
     } catch (error) {
       console.error("Random question fetch error:", error);
       return null;
@@ -114,7 +114,7 @@ export default function QuizList() {
           ))}
         </div>
 
-        {/* Difficulty Selector Modal */}
+        {/* ===== DIFFICULTY MODAL ===== */}
         {selectedQuiz && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -133,7 +133,13 @@ export default function QuizList() {
           >
             <h2 style={{ color: "#4e54c8" }}>{selectedQuiz.title}</h2>
             <p>Select Difficulty Level</p>
-            {["Very Easy", "Easy", "Medium", "Hard"].map((level) => (
+
+            {[
+              "Very Easy",
+              "Easy",
+              "Medium",
+              "Hard",
+            ].map((level) => (
               <button
                 key={level}
                 onClick={() => setSelectedDifficulty(level)}
@@ -146,8 +152,11 @@ export default function QuizList() {
                       ? "2px solid #4e54c8"
                       : "1px solid #ccc",
                   background:
-                    selectedDifficulty === level ? "#4e54c8" : "#f0f4f8",
-                  color: selectedDifficulty === level ? "white" : "#333",
+                    selectedDifficulty === level
+                      ? "#4e54c8"
+                      : "#f0f4f8",
+                  color:
+                    selectedDifficulty === level ? "white" : "#333",
                   cursor: "pointer",
                 }}
               >
@@ -200,28 +209,36 @@ export default function QuizList() {
         )}
       </div>
 
-      {/* History Button */}
-      <button
-        onClick={() => navigate("/history")}
-        style={buttonStyle}
+      {/* ===== ACTION BUTTONS ===== */}
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          marginTop: "40px",
+          gap: "12px",
+        }}
       >
-        📊 View My History
-      </button>
+        <button
+          onClick={() => navigate("/history")}
+          style={actionButtonStyle}
+        >
+          📊 View My History
+        </button>
 
         <button
-          style={actionButtonStyle}
           onClick={() => navigate("/predict")}
+          style={actionButtonStyle}
         >
           📈 View My Prediction
         </button>
 
         <button
+          onClick={handleLogout}
           style={{
             ...actionButtonStyle,
             background: "#999",
-            marginTop: "10px",
           }}
-          onClick={handleLogout}
         >
           🚪 Log Out
         </button>
