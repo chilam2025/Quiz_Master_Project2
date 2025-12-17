@@ -18,33 +18,45 @@ export default function ResultsPage() {
     async function fetchScore() {
       if (!token) return;
       try {
+        // Fetch all attempts
         const res = await fetch(`${API_URL}/users/${user_id}/attempts`, {
           headers: { Authorization: `Bearer ${token}` },
         });
         const history = await res.json();
         setAttempts(history);
 
-// Compute average score
+        console.log("Fetched history:", history);
+        console.log("Current quiz_id:", quiz_id);
+
+        // Compute average score
         if (history.length > 0) {
           const avg =
             history.reduce((sum, a) => sum + a.score, 0) / history.length;
           setAverage(avg.toFixed(2));
-}
-        const attempt = history.find((a) => a.quiz_id === parseInt(quiz_id));
+        }
 
-        const resQuiz = await fetch(`${API_URL}/quizzes/${quiz_id}`);
-        const quizData = await resQuiz.json();
-        const totalQuestions = quizData.questions.length;
+        // Filter attempts for this quiz and pick the latest one
+        const quizAttempts = history
+          .filter((a) => Number(a.quiz_id) === Number(quiz_id))
+          .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp)); // latest first
+
+        const latestAttempt = quizAttempts[0];
+
+        console.log("Latest attempt:", latestAttempt);
 
         setScoreData({
-          score: attempt ? attempt.score : 0,
-          total: totalQuestions,
+          score: latestAttempt ? latestAttempt.score : 0,
+          total: latestAttempt ? latestAttempt.total : 0,
         });
       } catch (err) {
         console.error(err);
-        setScoreData({ score: 0, total: 1 });
+        setScoreData({
+          score: 0,
+          total: 0,
+        });
       }
     }
+
     fetchScore();
   }, [user_id, quiz_id, token]);
 
@@ -68,12 +80,7 @@ export default function ResultsPage() {
         background: "#f0f4f8",
       }}
     >
-      {isGood && (
-        <Confetti
-          width={window.innerWidth}
-          height={window.innerHeight}
-        />
-      )}
+      {isGood && <Confetti width={window.innerWidth} height={window.innerHeight} />}
 
       <motion.h1
         initial={{ y: -50, opacity: 0 }}
@@ -114,9 +121,9 @@ export default function ResultsPage() {
           style={{ width: "120px", marginTop: "20px" }}
         />
       )}
-        {/*Buttons*/}
+
       <motion.button
-        onClick={() => navigate("/quizzes")}   // ← ADDED THIS LINE ONLY
+        onClick={() => navigate("/quizzes")}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         style={{
@@ -134,24 +141,24 @@ export default function ResultsPage() {
         Go Back Home
       </motion.button>
 
-      {/* Navigate to Prediction page */}
       <motion.button
         onClick={() => navigate("/predict")}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
         style={{
-            padding: "15px 30px",
-            borderRadius: "8px",
-            border: "none",
-            background: "linear-gradient(90deg, #ff7e5f, #feb47b)",
-            color: "white",
-            fontSize: "16px",
-            cursor: "pointer",
-            boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
-          }}
-        >
-          See Predicted Score
-        </motion.button>
+          marginTop: "20px",
+          padding: "15px 30px",
+          borderRadius: "8px",
+          border: "none",
+          background: "linear-gradient(90deg, #ff7e5f, #feb47b)",
+          color: "white",
+          fontSize: "16px",
+          cursor: "pointer",
+          boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
+        }}
+      >
+        See Predicted Score
+      </motion.button>
     </div>
-   );
+  );
 }
