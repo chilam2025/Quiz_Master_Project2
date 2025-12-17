@@ -75,12 +75,12 @@ class Question(db.Model):
 
 
 class QuizAttempt(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
+    id = db.Column(db.Integer, primary_key=True,autoincrement=True)
     quiz_id = db.Column(db.Integer, nullable=False)
     user_id = db.Column(db.Integer, nullable=False)
-    score = db.Column(db.Integer, nullable=False)
-    total_questions = db.Column(db.Integer, nullable=False)
-    percentage = db.Column(db.Float, nullable=False)
+    score = db.Column(db.Integer, nullable=True)
+    total_questions = db.Column(db.Integer, nullable=True)
+    percentage = db.Column(db.Float, nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     question_order = db.Column(db.JSON, nullable=False)
     status = db.Column(db.String(20), default="in_progress")
@@ -244,7 +244,6 @@ def start_quiz(quiz_id):
     if difficulty not in valid_levels:
         return jsonify({"error": "Invalid difficulty"}), 400
 
-    # ❗ Only reuse ACTIVE attempt
     attempt = QuizAttempt.query.filter_by(
         quiz_id=quiz_id,
         user_id=current_user.id,
@@ -255,16 +254,12 @@ def start_quiz(quiz_id):
         attempt = QuizAttempt(
             quiz_id=quiz_id,
             user_id=current_user.id,
-            score=0,
-            total_questions=0,
-            percentage=0,
             question_order=[],
             status="in_progress"
         )
         db.session.add(attempt)
-        db.session.commit()
+        db.session.flush()  # get ID without commit
 
-    # Always generate NEW question order for NEW attempt
     questions = Question.query.filter_by(
         quiz_id=quiz_id,
         difficulty=difficulty
@@ -274,17 +269,16 @@ def start_quiz(quiz_id):
         return jsonify({"error": "No questions available"}), 404
 
     selected = random.sample(questions, min(20, len(questions)))
-
     attempt.question_order = [q.id for q in selected]
-    attempt.total_questions = len(selected)
     attempt.timestamp = datetime.utcnow()
 
     db.session.commit()
 
     return jsonify({
         "attempt_id": attempt.id,
-        "total_questions": attempt.total_questions
+        "total_questions": len(selected)
     }), 200
+
 
 
 @app.route("/quizzes", methods=["GET"])
@@ -473,7 +467,10 @@ def get_user_attempts(user_id):
     # ensure token user matches requested user
     if request.current_user.id != user_id:
         return jsonify({"error": "Unauthorized"}), 401
-    attempts = QuizAttempt.query.filter_by(user_id=user_id).all()
+    attempts = QuizAttempt.query.filter_by(
+        user_id=user_id,
+        status="submitted"
+    ).all()
     result = []
     for a in attempts:
         total = total = a.total_questions
@@ -737,7 +734,10 @@ def predict_next_score():
         return jsonify({"error": "Unauthorized - token user mismatch"}), 401
 
     # Get user's attempts
-    attempts = QuizAttempt.query.filter_by(user_id=uid).order_by(QuizAttempt.timestamp.asc()).all()
+    attempts = QuizAttempt.query.filter_by(
+        user_id=uid,
+        status="submitted"
+    ).order_by(QuizAttempt.timestamp.asc()).all()
     if not attempts:
         return jsonify({"error": "No attempts found for user; create synthetic data or take quizzes"}), 404
 
@@ -1040,12 +1040,6 @@ def analytics(user):
 if __name__ == "__main__":
     with app.app_context():
         db.create_all()
-        quizzes = Quiz.query.all()
-        for quiz in quizzes:
-            count = Question.query.filter_by(quiz_id=quiz.id).count()
-            #print(f"Quiz {quiz.id} has {count} questions in the database")
-    app.run(debug=True)
-
         print(f"Using database: {app.config['SQLALCHEMY_DATABASE_URI']}")
     print("Backend running on http://127.0.0.1:5000")
     app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
