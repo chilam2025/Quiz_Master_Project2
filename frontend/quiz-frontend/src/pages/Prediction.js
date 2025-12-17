@@ -1,7 +1,87 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {LineChart,Line,XAxis,YAxis,CartesianGrid,Tooltip,ResponsiveContainer,} from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
+import { motion } from "framer-motion";
 const API_URL = "http://127.0.0.1:5000";
+
+const containerStyle = {
+  padding: "20px",
+  display: "flex",
+  flexDirection: "column",
+  alignItems: "center",
+  minHeight: "100vh",
+  background: "linear-gradient(135deg, #e2f2ff 0%, #cde6ff 50%, #e8f4ff 100%)",
+  fontFamily: "Poppins, sans-serif",
+};
+
+const cardStyle = {
+  background: "rgba(255,255,255,0.95)",
+  borderRadius: "18px",
+  padding: "25px",
+  width: "90%",
+  maxWidth: "620px",
+  boxShadow: "0 16px 45px rgba(64,132,207,0.18)",
+  textAlign: "center",
+  animation: "fadeIn 0.8s ease-in-out",
+  marginBottom: "20px",
+  border: "1px solid rgba(128,178,232,0.35)",
+};
+
+const titleStyle = {
+  fontWeight: "bold",
+  fontSize: "22px",
+  marginBottom: "15px",
+  color: "#1f6fb2",
+};
+
+const statBox = {
+  background: "#f5f8fc",
+  padding: "12px",
+  borderRadius: "12px",
+  fontSize: "16px",
+  marginBottom: "12px",
+  boxShadow: "inset 0 2px 5px rgba(0,0,0,0.04)",
+  border: "1px solid #c7d9ef",
+  textAlign: "left",
+};
+
+const backButton = {
+  marginTop: "25px",
+  background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
+  padding: "12px 30px",
+  border: "none",
+  borderRadius: "12px",
+  fontWeight: "bold",
+  color: "white",
+  cursor: "pointer",
+  fontSize: "16px",
+  boxShadow: "0 10px 25px rgba(64,132,207,0.25)",
+  transition: "transform 0.2s ease, box-shadow 0.2s ease",
+};
+
+const progressBarContainer = {
+  width: "100%",
+  background: "#e0e9f5",
+  borderRadius: "10px",
+  overflow: "hidden",
+  marginTop: "8px",
+};
+
+const progressBarFill = (percentage) => ({
+  width: `${percentage}%`,
+  background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
+  height: "20px",
+  borderRadius: "10px",
+  transition: "width 0.5s ease-in-out",
+});
 
 export default function Prediction() {
   const navigate = useNavigate();
@@ -26,7 +106,6 @@ export default function Prediction() {
         return;
       }
 
-      // User has never attempted any quiz
       if (res.status === 404) {
         setPrediction({ noAttempts: true });
         return;
@@ -50,77 +129,6 @@ export default function Prediction() {
     getPrediction();
   }, []);
 
-  // ---------------- UI STYLES ----------------
-  const containerStyle = {
-    padding: "20px",
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    minHeight: "100vh",
-    background: "linear-gradient(135deg, #9be7ff, #c8d9ff)",
-    fontFamily: "Poppins, sans-serif",
-  };
-
-  const cardStyle = {
-    background: "white",
-    borderRadius: "15px",
-    padding: "25px",
-    width: "90%",
-    maxWidth: "600px",
-    boxShadow: "0 6px 20px rgba(0,0,0,0.2)",
-    textAlign: "center",
-    animation: "fadeIn 0.8s ease-in-out",
-    marginBottom: "20px",
-  };
-
-  const titleStyle = {
-    fontWeight: "bold",
-    fontSize: "22px",
-    marginBottom: "15px",
-    color: "#3A3A3A",
-  };
-
-  const statBox = {
-    background: "#f6f7ff",
-    padding: "12px",
-    borderRadius: "10px",
-    fontSize: "16px",
-    marginBottom: "10px",
-    boxShadow: "inset 0 2px 5px rgba(0,0,0,0.05)",
-  };
-
-  const backButton = {
-    marginTop: "25px",
-    background: "linear-gradient(90deg, #0066ff, #00c8ff)",
-    padding: "12px 30px",
-    border: "none",
-    borderRadius: "10px",
-    fontWeight: "bold",
-    color: "white",
-    cursor: "pointer",
-    fontSize: "16px",
-    boxShadow: "0 5px 15px rgba(0,0,0,0.2)",
-  };
-
-  const progressBarContainer = {
-    width: "100%",
-    background: "#e0e0e0",
-    borderRadius: "10px",
-    overflow: "hidden",
-    marginTop: "8px",
-  };
-
-  const progressBarFill = (percentage) => ({
-    width: `${percentage}%`,
-    background: "linear-gradient(90deg, #0066ff, #00c8ff)",
-    height: "20px",
-    borderRadius: "10px",
-    transition: "width 0.5s ease-in-out",
-  });
-
-  // ---------------- UI STATES ----------------
-
-  // ⏳ Loading state
   if (!prediction) {
     return (
       <div style={containerStyle}>
@@ -132,7 +140,6 @@ export default function Prediction() {
     );
   }
 
-  // ❌ User has not attempted ANY quiz
   if (prediction.noAttempts) {
     return (
       <div style={containerStyle}>
@@ -145,33 +152,27 @@ export default function Prediction() {
             You haven't attempted any quiz yet.
           </div>
 
-          {/* ⭐ CTA Button */}
           <button
-            style={{
-              marginTop: "20px",
-              background: "linear-gradient(90deg, #ff7b00, #ffbb00)",
-              padding: "14px 35px",
-              border: "none",
-              borderRadius: "12px",
-              fontWeight: "bold",
-              color: "white",
-              cursor: "pointer",
-              fontSize: "18px",
-              boxShadow: "0 6px 18px rgba(0,0,0,0.25)",
-              transition: "transform 0.2s ease",
+            style={backButton}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "translateY(-1px)";
+              e.currentTarget.style.boxShadow =
+                "0 14px 28px rgba(64,132,207,0.25)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow =
+                "0 10px 25px rgba(64,132,207,0.25)";
             }}
             onClick={() => navigate("/quizzes")}
-            onMouseEnter={(e) => (e.target.style.transform = "scale(1.05)")}
-            onMouseLeave={(e) => (e.target.style.transform = "scale(1)")}
           >
-            🚀 Start Your First Quiz
+            Start Your First Quiz
           </button>
         </div>
       </div>
     );
   }
 
-  // Prepare chart data
   const chartData =
     prediction.history?.map((h) => ({
       name: `Attempt ${h.attempt_index}`,
@@ -185,10 +186,14 @@ export default function Prediction() {
     });
   }
 
-  // ---------------- MAIN UI ----------------
   return (
     <div style={containerStyle}>
-      <div style={cardStyle}>
+      <motion.div
+        initial={{ opacity: 0, y: 15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3 }}
+        style={cardStyle}
+      >
         <h2 style={titleStyle}>Performance Prediction</h2>
 
         {prediction.message && (
@@ -202,9 +207,7 @@ export default function Prediction() {
             <strong>Predicted Percentage:</strong>{" "}
             {prediction.predicted_percentage}%
             <div style={progressBarContainer}>
-              <div
-                style={progressBarFill(prediction.predicted_percentage)}
-              ></div>
+              <div style={progressBarFill(prediction.predicted_percentage)}></div>
             </div>
           </div>
         )}
@@ -256,7 +259,7 @@ export default function Prediction() {
               <Line
                 type="monotone"
                 dataKey="percentage"
-                stroke="#0066ff"
+                stroke="#57a5ff"
                 strokeWidth={3}
                 activeDot={{ r: 6 }}
               />
@@ -264,10 +267,23 @@ export default function Prediction() {
           </ResponsiveContainer>
         </div>
 
-        <button style={backButton} onClick={() => navigate("/quizzes")}>
+        <button
+          style={backButton}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.transform = "translateY(-1px)";
+            e.currentTarget.style.boxShadow =
+              "0 14px 28px rgba(64,132,207,0.25)";
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.transform = "translateY(0)";
+            e.currentTarget.style.boxShadow =
+              "0 10px 25px rgba(64,132,207,0.25)";
+          }}
+          onClick={() => navigate("/quizzes")}
+        >
           Return to Quizzes
         </button>
-      </div>
+      </motion.div>
     </div>
   );
 }

@@ -14,12 +14,10 @@ export default function ResultsPage() {
   const user = JSON.parse(localStorage.getItem("user"));
   const token = user?.token;
 
-  // 🔒 Prevent double-setting in React 18 StrictMode
   const hasLoaded = useRef(false);
 
   useEffect(() => {
     if (!token || hasLoaded.current) return;
-
     hasLoaded.current = true;
 
     async function fetchResults() {
@@ -32,16 +30,14 @@ export default function ResultsPage() {
 
         const history = await res.json();
 
-        // Average score
         if (history.length > 0) {
           const avg =
             history.reduce((sum, a) => sum + a.score, 0) / history.length;
           setAverage(avg.toFixed(2));
         }
 
-        // Get latest attempt for this quiz
         const latestAttempt = history
-          .filter(a => Number(a.quiz_id) === Number(quiz_id))
+          .filter((a) => Number(a.quiz_id) === Number(quiz_id))
           .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))[0];
 
         if (!latestAttempt) {
@@ -62,7 +58,6 @@ export default function ResultsPage() {
     fetchResults();
   }, [user_id, quiz_id, token]);
 
-  // Loading state
   if (!scoreData) {
     return (
       <p style={{ textAlign: "center", marginTop: "50px" }}>
@@ -77,10 +72,10 @@ export default function ResultsPage() {
     <div
       style={{
         textAlign: "center",
-        padding: "50px",
+        padding: "50px 20px",
         fontFamily: "'Poppins', sans-serif",
         minHeight: "80vh",
-        background: "#f0f4f8",
+        background: "linear-gradient(135deg, #e2f2ff 0%, #cde6ff 50%, #e8f4ff 100%)",
       }}
     >
       {isGood && (
@@ -93,10 +88,10 @@ export default function ResultsPage() {
         transition={{ duration: 0.7 }}
         style={{
           fontSize: "36px",
-          color: isGood ? "#4CAF50" : "#FF3B3B",
+          color: isGood ? "#1f6fb2" : "#d94b4b",
         }}
       >
-        {isGood ? "🎉 Congratulations!" : "😢 Better luck next time!"}
+        {isGood ? "Congratulations!" : "Better luck next time!"}
       </motion.h1>
 
       <motion.p
@@ -112,12 +107,16 @@ export default function ResultsPage() {
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.7, delay: 0.5 }}
-        style={{ fontSize: "18px", color: "#555" }}
+        style={{ fontSize: "18px", color: "#2f557a" }}
       >
         {isGood
-          ? "You did amazing! Keep it up 👍"
-          : "Don't worry, practice makes perfect 💪"}
+          ? "You did amazing! Keep it up."
+          : "Don't worry, practice makes perfect."}
       </motion.p>
+
+      <div style={{ color: "#2f557a", marginTop: "10px" }}>
+        Average across attempts: {average}%
+      </div>
 
       <motion.button
         onClick={() => navigate("/quizzes")}
@@ -126,13 +125,13 @@ export default function ResultsPage() {
         style={{
           marginTop: "40px",
           padding: "15px 30px",
-          borderRadius: "8px",
+          borderRadius: "10px",
           border: "none",
-          background: "linear-gradient(90deg, #4e54c8, #8f94fb)",
+          background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
           color: "white",
           fontSize: "16px",
           cursor: "pointer",
-          boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
+          boxShadow: "0 10px 25px rgba(64,132,207,0.25)",
         }}
       >
         Go Back Home
@@ -145,13 +144,13 @@ export default function ResultsPage() {
         style={{
           marginTop: "20px",
           padding: "15px 30px",
-          borderRadius: "8px",
+          borderRadius: "10px",
           border: "none",
-          background: "linear-gradient(90deg, #ff7e5f, #feb47b)",
+          background: "linear-gradient(120deg, #6e8197, #8aa2b8)",
           color: "white",
           fontSize: "16px",
           cursor: "pointer",
-          boxShadow: "0 5px 15px rgba(0,0,0,0.1)",
+          boxShadow: "0 10px 25px rgba(64,132,207,0.25)",
         }}
       >
         See Predicted Score
