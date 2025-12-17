@@ -238,7 +238,8 @@ def start_quiz(quiz_id):
     current_user = request.current_user
     data = request.get_json() or {}
 
-    difficulty = data.get("difficulty", "Medium").capitalize()
+    # Normalize difficulty to match stored values
+    difficulty = data.get("difficulty", "Medium").title()
     valid_levels = ["Very Easy", "Easy", "Medium", "Hard"]
 
     if difficulty not in valid_levels:
