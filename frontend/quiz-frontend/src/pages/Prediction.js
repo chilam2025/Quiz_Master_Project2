@@ -10,7 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { motion } from "framer-motion";
-const API_URL = "http://127.0.0.1:5000";
+import API_URL from "../services/api";
 
 const containerStyle = {
   padding: "20px",
@@ -86,6 +86,7 @@ const progressBarFill = (percentage) => ({
 export default function Prediction() {
   const navigate = useNavigate();
   const [prediction, setPrediction] = useState(null);
+  const [error, setError] = useState("");
   const user = JSON.parse(localStorage.getItem("user"));
 
   async function getPrediction() {
@@ -122,12 +123,40 @@ export default function Prediction() {
       });
     } catch (err) {
       console.error("Prediction error:", err);
+      setError("Could not load prediction. Please try again.");
     }
   }
 
   useEffect(() => {
     getPrediction();
   }, []);
+
+  if (error) {
+    return (
+      <div style={containerStyle}>
+        <div style={cardStyle}>
+          <h2 style={titleStyle}>Performance Prediction</h2>
+          <p style={{ color: "#d94b4b" }}>{error}</p>
+          <button
+            style={backButton}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "translateY(-1px)";
+              e.currentTarget.style.boxShadow =
+                "0 14px 28px rgba(64,132,207,0.25)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "translateY(0)";
+              e.currentTarget.style.boxShadow =
+                "0 10px 25px rgba(64,132,207,0.25)";
+            }}
+            onClick={() => navigate("/quizzes")}
+          >
+            Back to Quizzes
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!prediction) {
     return (
