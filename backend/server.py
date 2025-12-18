@@ -84,6 +84,10 @@ class QuizAttempt(db.Model):
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
     question_order = db.Column(db.JSON, nullable=False)
     status = db.Column(db.String(20), default="in_progress")
+    # Stores per-question review details (selected vs correct for each)
+    answers_detail = db.Column(db.JSON, nullable=True)
+    # Stores per-question review details (question text, selected vs correct)
+    answers_detail = db.Column(db.JSON, nullable=True)
 
     #__table_args__ = (
         #db.UniqueConstraint("quiz_id", "user_id", name="unique_user_quiz"),
@@ -439,14 +443,30 @@ def submit_quiz(quiz_id):
     question_map = {q.id: q for q in questions}
 
     score = 0
+    answers_detail = []
     for qid, ans in zip(question_ids, submitted_answers):
-        if int(ans) == question_map[qid].correct_answer:
+        q = question_map[qid]
+        options = json.loads(q.options)
+        selected_idx = int(ans)
+        correct_idx = q.correct_answer
+        is_correct = selected_idx == correct_idx
+        if is_correct:
             score += 1
+        answers_detail.append({
+            "question_id": qid,
+            "question": q.question,
+            "selected_option": selected_idx,
+            "selected_text": options[selected_idx] if 0 <= selected_idx < len(options) else None,
+            "correct_option": correct_idx,
+            "correct_text": options[correct_idx] if 0 <= correct_idx < len(options) else None,
+            "is_correct": is_correct
+        })
 
     attempt.score = score
     attempt.total_questions = len(question_ids)
     attempt.percentage = (score / len(question_ids)) * 100
     attempt.timestamp = datetime.utcnow()
+    attempt.answers_detail = answers_detail
 
     # ✅ reset AFTER grading
     attempt.status = "submitted"
@@ -457,7 +477,8 @@ def submit_quiz(quiz_id):
         "user_id": current_user.id,
         "quiz_id": quiz_id,
         "score": score,
-        "total": len(question_ids)
+        "total": len(question_ids),
+        "answers": answers_detail
     }), 200
 
 
@@ -474,17 +495,15 @@ def get_user_attempts(user_id):
     ).all()
     result = []
     for a in attempts:
-        total = total = a.total_questions
-
         result.append({
             "quiz_id": a.quiz_id,
             "score": a.score,
-            "total":a.total_questions,
-            "percentage":a.percentage,
-            "status":a.status,
-            "timestamp": a.timestamp.isoformat()
-
-})
+            "total": a.total_questions,
+            "percentage": a.percentage,
+            "status": a.status,
+            "timestamp": a.timestamp.isoformat(),
+            "answers_detail": a.answers_detail,
+        })
     return jsonify(result)
 
 @app.route("/quizzes/<int:quiz_id>", methods=["DELETE"])
