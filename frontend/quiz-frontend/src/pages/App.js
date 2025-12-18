@@ -9,6 +9,8 @@ import HistoryPage from "./HistoryPage";
 import Prediction from "./Prediction";
 import RolesPage from "./RolesPage";
 import AdminDashboard from "./AdminDashboard";
+// In your App.js or routing configuration
+import InsightsPage from "./InsightsPage";
 
 // ProtectedRoute is INSIDE App.js in your project
 function ProtectedRoute({ children }) {
@@ -82,6 +84,9 @@ function App() {
             </ProtectedRoute>
           }
         />
+        <Route
+        path="/insights"
+         element={<InsightsPage />} />
 
         <Route
           path="/predict"
