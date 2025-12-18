@@ -34,7 +34,8 @@ const buttonStyle = {
 
 export default function HistoryPage() {
   const [attempts, setAttempts] = useState([]);
-  const [average, setAverage] = useState(0);
+  const [quizAttempts, setQuizAttempts] = useState({});
+  const [quizTitles, setQuizTitles] = useState({});
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
@@ -59,6 +60,27 @@ export default function HistoryPage() {
         const data = await res.json();
         setAttempts(data);
 
+        // Group attempts by quiz_id
+        const grouped = {};
+        const titles = {};
+
+        data.forEach(attempt => {
+          const quizId = attempt.quiz_id;
+          if (!grouped[quizId]) {
+            grouped[quizId] = [];
+          }
+          grouped[quizId].push(attempt);
+
+          // Store quiz title if available
+          if (attempt.quiz_title && !titles[quizId]) {
+            titles[quizId] = attempt.quiz_title;
+          }
+        });
+
+        setQuizAttempts(grouped);
+        setQuizTitles(titles);
+
+        // Calculate overall average
         if (data.length > 0) {
           const avg =
             data.reduce((sum, a) => (a.score / a.total) * 100 + sum, 0) /
@@ -74,6 +96,8 @@ export default function HistoryPage() {
 
     fetchHistory();
   }, [token, user_id]);
+
+  const [average, setAverage] = useState(0);
 
   const formatTimestamp = (ts) => {
     if (!ts) return "-";
@@ -95,6 +119,18 @@ export default function HistoryPage() {
     return "linear-gradient(180deg, #a7d9ff, #85bce7)";
   };
 
+  const getGraphBarColor = (index, total) => {
+    const hue = 200 + (index * 40) % 160; // Blue-ish colors
+    return `hsl(${hue}, 70%, 60%)`;
+  };
+
+  // Get quiz IDs sorted by most recent attempt
+  const sortedQuizIds = Object.keys(quizAttempts).sort((a, b) => {
+    const lastAttemptA = Math.max(...quizAttempts[a].map(a => new Date(a.timestamp)));
+    const lastAttemptB = Math.max(...quizAttempts[b].map(a => new Date(a.timestamp)));
+    return lastAttemptB - lastAttemptA;
+  });
+
   return (
     <div style={pageStyle}>
       <div style={{ maxWidth: "1000px", margin: "0 auto" }}>
@@ -102,7 +138,7 @@ export default function HistoryPage() {
           My Quiz History
         </h1>
         <p style={{ textAlign: "center", color: "#2f557a", marginBottom: "24px" }}>
-          Track your performance over time
+          Track your performance for each quiz
         </p>
 
         {loading && (
@@ -134,7 +170,7 @@ export default function HistoryPage() {
             }}
           >
             <div style={{ fontSize: "14px", color: "#2f557a" }}>
-              Average Score
+              Overall Average Score
             </div>
             <div
               style={{
@@ -145,151 +181,296 @@ export default function HistoryPage() {
             >
               {average}%
             </div>
-          </div>
-        )}
-
-        <div style={{ display: "grid", gap: "16px" }}>
-          {attempts.length === 0 && !loading ? (
-            <p style={{ textAlign: "center" }}>No attempts yet.</p>
-          ) : (
-            attempts.map((a, index) => {
-              const percent = (a.score / a.total) * 100;
-              return (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.2, delay: index * 0.02 }}
-                  style={cardStyle}
-                >
-                  <div style={{ fontWeight: "600" }}>
-                    Quiz {a.quiz_id}
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "14px",
-                      color: "#2f557a",
-                    }}
-                  >
-                    <span>Score</span>
-                    <span>
-                      {a.score}/{a.total}
-                    </span>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "14px",
-                      color: "#2f557a",
-                    }}
-                  >
-                    <span>Percentage</span>
-                    <span>{percent.toFixed(2)}%</span>
-                  </div>
-
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      fontSize: "13px",
-                      color: "#2f557a",
-                    }}
-                  >
-                    <span>Date</span>
-                    <span>{formatTimestamp(a.timestamp)}</span>
-                  </div>
-
-                  <div
-                    style={{
-                      height: "8px",
-                      background: "#e5edf7",
-                      borderRadius: "6px",
-                      overflow: "hidden",
-                      marginTop: "8px",
-                    }}
-                  >
-                    <div
-                      style={{
-                        height: "100%",
-                        width: `${percent}%`,
-                        background: getBarColor(percent),
-                      }}
-                    />
-                  </div>
-                </motion.div>
-              );
-            })
-          )}
-        </div>
-
-        {attempts.length > 0 && (
-          <div
-            style={{
-              marginTop: "30px",
-              background: "rgba(255,255,255,0.95)",
-              padding: "20px",
-              borderRadius: "14px",
-              boxShadow: "0 10px 22px rgba(64,132,207,0.15)",
-              border: "1px solid rgba(128,178,232,0.35)",
-            }}
-          >
-            <h3 style={{ marginBottom: "16px", color: "#1f6fb2" }}>
-              Score Trend
-            </h3>
-
-            <div
-              style={{
-                display: "flex",
-                alignItems: "flex-end",
-                gap: "10px",
-                overflowX: "auto",
-                paddingBottom: "10px",
-              }}
-            >
-              {attempts.map((a, index) => {
-                const percent = (a.score / a.total) * 100;
-                return (
-                  <motion.div
-                    key={index}
-                    initial={{ height: 0 }}
-                    animate={{ height: `${percent}px` }}
-                    transition={{ duration: 0.6 }}
-                    style={{
-                      minWidth: "30px",
-                      background: getBarColor(percent),
-                      borderRadius: "8px",
-                    }}
-                    title={`${percent.toFixed(2)}%`}
-                  />
-                );
-              })}
+            <div style={{ fontSize: "14px", color: "#2f557a", marginTop: "8px" }}>
+              Total Attempts: {attempts.length} | Quizzes Taken: {sortedQuizIds.length}
             </div>
           </div>
         )}
 
-        <div style={{ textAlign: "center", marginTop: "40px" }}>
-          <button
-            onClick={() => navigate("/quizzes")}
-            style={buttonStyle}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "translateY(-1px)";
-              e.currentTarget.style.boxShadow =
-                "0 14px 28px rgba(64,132,207,0.25)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "translateY(0)";
-              e.currentTarget.style.boxShadow =
-                "0 10px 25px rgba(64,132,207,0.25)";
-            }}
-          >
-            Back to Quizzes
-          </button>
-        </div>
+        {/* Individual Quiz Graphs */}
+        {sortedQuizIds.map(quizId => {
+          const attemptsForQuiz = quizAttempts[quizId];
+          const quizTitle = quizTitles[quizId] || `Quiz ${quizId}`;
+          const sortedAttempts = [...attemptsForQuiz].sort((a, b) =>
+            new Date(a.timestamp) - new Date(b.timestamp)
+          );
+
+          const averageForQuiz = sortedAttempts.reduce((sum, a) =>
+            (a.score / a.total) * 100 + sum, 0
+          ) / sortedAttempts.length;
+
+          return (
+            <div
+              key={quizId}
+              style={{
+                ...cardStyle,
+                marginBottom: "32px",
+              }}
+            >
+              <div style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: "16px"
+              }}>
+                <h3 style={{
+                  color: "#1f6fb2",
+                  margin: 0,
+                  fontSize: "18px"
+                }}>
+                  {quizTitle}
+                </h3>
+                <div style={{
+                  fontSize: "14px",
+                  color: "#2f557a",
+                  fontWeight: "600"
+                }}>
+                  Average: {averageForQuiz.toFixed(2)}% | Attempts: {sortedAttempts.length}
+                </div>
+              </div>
+
+              {/* Simple Graph */}
+              <div style={{ marginBottom: "24px" }}>
+                <h4 style={{
+                  fontSize: "14px",
+                  color: "#2f557a",
+                  marginBottom: "8px",
+                  textAlign: "center"
+                }}>
+                  Performance Trend
+                </h4>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "flex-end",
+                    justifyContent: "center",
+                    gap: "8px",
+                    height: "150px",
+                    padding: "20px 10px 30px 10px",
+                    background: "rgba(245, 250, 255, 0.7)",
+                    borderRadius: "10px",
+                    border: "1px solid rgba(128,178,232,0.2)",
+                    position: "relative"
+                  }}
+                >
+                  {/* Y-axis labels */}
+                  <div style={{
+                    position: "absolute",
+                    left: "10px",
+                    top: "20px",
+                    bottom: "30px",
+                    display: "flex",
+                    flexDirection: "column",
+                    justifyContent: "space-between",
+                    fontSize: "11px",
+                    color: "#2f557a"
+                  }}>
+                    <span>100%</span>
+                    <span>75%</span>
+                    <span>50%</span>
+                    <span>25%</span>
+                    <span>0%</span>
+                  </div>
+
+                  {/* Graph bars */}
+                  {sortedAttempts.map((attempt, index) => {
+                    const percent = (attempt.score / attempt.total) * 100;
+                    const barHeight = Math.max(percent * 0.8, 5); // Minimum height of 5%
+                    return (
+                      <motion.div
+                        key={attempt.id || index}
+                        initial={{ height: 0 }}
+                        animate={{ height: `${barHeight}%` }}
+                        transition={{ duration: 0.8, delay: index * 0.05 }}
+                        style={{
+                          flex: 1,
+                          background: getGraphBarColor(index, sortedAttempts.length),
+                          borderRadius: "6px 6px 0 0",
+                          minWidth: "40px",
+                          maxWidth: "60px",
+                          position: "relative"
+                        }}
+                        title={`Attempt ${index + 1}: ${percent.toFixed(1)}%
+                          ${formatTimestamp(attempt.timestamp)}`}
+                      >
+                        {/* Percentage label on bar */}
+                        <div style={{
+                          position: "absolute",
+                          top: "-25px",
+                          left: "0",
+                          right: "0",
+                          textAlign: "center",
+                          fontSize: "12px",
+                          fontWeight: "600",
+                          color: "#1f6fb2"
+                        }}>
+                          {percent.toFixed(0)}%
+                        </div>
+
+                        {/* Attempt number at bottom */}
+                        <div style={{
+                          position: "absolute",
+                          bottom: "-25px",
+                          left: "0",
+                          right: "0",
+                          textAlign: "center",
+                          fontSize: "11px",
+                          color: "#2f557a"
+                        }}>
+                          {index + 1}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Attempts List */}
+              <div style={{
+                marginTop: "16px",
+                borderTop: "1px solid rgba(128,178,232,0.3)",
+                paddingTop: "16px"
+              }}>
+                <h4 style={{
+                  fontSize: "14px",
+                  color: "#2f557a",
+                  marginBottom: "12px"
+                }}>
+                  Individual Attempts
+                </h4>
+                <div style={{ display: "grid", gap: "12px" }}>
+                  {sortedAttempts.map((attempt, index) => {
+                    const percent = (attempt.score / attempt.total) * 100;
+                    return (
+
+                      <motion.div
+                        key={attempt.id || index}
+                        initial={{ opacity: 0, x: -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ duration: 0.3, delay: index * 0.05 }}
+                        style={{
+                          padding: "12px",
+                          background: "rgba(245, 250, 255, 0.7)",
+                          borderRadius: "8px",
+                          border: "1px solid rgba(128,178,232,0.2)",
+                        }}
+                      >
+                        <div style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          alignItems: "center",
+                          marginBottom: "8px"
+                        }}>
+                          <div style={{ fontWeight: "600", color: "#1f6fb2" }}>
+                            Attempt {index + 1}
+                          </div>
+                          <div style={{
+                            fontSize: "14px",
+                            fontWeight: "600",
+                            color: percent >= 70 ? "#2ecc71" : percent >= 50 ? "#f39c12" : "#e74c3c"
+                          }}>
+                            {percent.toFixed(2)}%
+                          </div>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            fontSize: "13px",
+                            color: "#2f557a",
+                            marginBottom: "4px"
+                          }}
+                        >
+                          <span>Score</span>
+                          <span>
+                            {attempt.score}/{attempt.total}
+                          </span>
+                        </div>
+
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            fontSize: "12px",
+                            color: "#2f557a",
+                          }}
+                        >
+                          <span>Date</span>
+                          <span>{formatTimestamp(attempt.timestamp)}</span>
+                        </div>
+
+                        <div
+                          style={{
+                            height: "6px",
+                            background: "#e5edf7",
+                            borderRadius: "4px",
+                            overflow: "hidden",
+                            marginTop: "8px",
+                          }}
+                        >
+                          <div
+                            style={{
+                              height: "100%",
+                              width: `${percent}%`,
+                              background: getBarColor(percent),
+                            }}
+                          />
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+
+        {attempts.length === 0 && !loading && (
+          <div style={{ textAlign: "center", padding: "40px 20px" }}>
+            <p style={{ fontSize: "18px", color: "#2f557a", marginBottom: "20px" }}>
+              No quiz attempts yet.
+            </p>
+            <button
+              onClick={() => navigate("/quizzes")}
+              style={buttonStyle}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-1px)";
+                e.currentTarget.style.boxShadow =
+                  "0 14px 28px rgba(64,132,207,0.25)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow =
+                  "0 10px 25px rgba(64,132,207,0.25)";
+              }}
+
+            >
+              Take Your First Quiz
+            </button>
+          </div>
+        )}
+
+        {attempts.length > 0 && (
+          <div style={{ textAlign: "center", marginTop: "40px" }}>
+            <button
+              onClick={() => navigate("/quizzes")}
+              style={buttonStyle}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.transform = "translateY(-1px)";
+                e.currentTarget.style.boxShadow =
+                  "0 14px 28px rgba(64,132,207,0.25)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.transform = "translateY(0)";
+                e.currentTarget.style.boxShadow =
+                  "0 10px 25px rgba(64,132,207,0.25)";
+              }}
+            >
+              Back to Quizzes
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
