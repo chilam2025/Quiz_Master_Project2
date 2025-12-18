@@ -3,6 +3,17 @@ import { useParams, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import API_URL from "../services/api";
 
+const buttonStyle = {
+  padding: "12px 18px",
+  borderRadius: "10px",
+  border: "none",
+  background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
+  color: "white",
+  fontWeight: 600,
+  cursor: "pointer",
+  boxShadow: "0 10px 25px rgba(64,132,207,0.25)",
+};
+
 export default function QuizPage() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -10,7 +21,8 @@ export default function QuizPage() {
   const [questions, setQuestions] = useState([]);
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [answers, setAnswers] = useState({});
-  const [error, setError] = useState("");
+  const [fatalError, setFatalError] = useState("");
+  const [inlineError, setInlineError] = useState("");
   const [loading, setLoading] = useState(true);
 
   const user = JSON.parse(localStorage.getItem("user"));
@@ -19,7 +31,6 @@ export default function QuizPage() {
   const difficulty =
     new URLSearchParams(window.location.search).get("difficulty") || "Medium";
 
-  // ✅ STEP 1: start quiz (create attempt)
   const startQuiz = async () => {
     const res = await fetch(`${API_URL}/quizzes/${id}/start`, {
       method: "POST",
@@ -34,7 +45,6 @@ export default function QuizPage() {
     if (!res.ok) throw new Error(data.error || "Failed to start quiz");
   };
 
-  // ✅ STEP 2: fetch questions
   const fetchQuestions = async () => {
     const res = await fetch(
       `${API_URL}/quizzes/${id}/questions/random/${difficulty}`,
@@ -55,19 +65,20 @@ export default function QuizPage() {
 
       try {
         setLoading(true);
-        setError("");
+        setFatalError("");
+        setInlineError("");
 
-        await startQuiz();                 // 🔑 CRITICAL
+        await startQuiz(); // initialize attempt
         const qs = await fetchQuestions();
 
         if (qs.length === 0) {
-          setError("No questions available. Try again.");
+          setFatalError("No questions available. Try again.");
         }
 
         setQuestions(qs);
       } catch (err) {
         console.error(err);
-        setError(err.message);
+        setFatalError(err.message);
       } finally {
         setLoading(false);
       }
@@ -75,8 +86,6 @@ export default function QuizPage() {
 
     loadQuiz();
   }, [id, difficulty, token]);
-
-  // ---------------- UI STATES ----------------
 
   if (loading) {
     return (
@@ -86,20 +95,13 @@ export default function QuizPage() {
     );
   }
 
-  if (error) {
+  if (fatalError) {
     return (
       <div style={{ textAlign: "center", marginTop: "50px" }}>
-        <p style={{ color: "red" }}>{error}</p>
+        <p style={{ color: "red" }}>{fatalError}</p>
         <button
           onClick={() => window.location.reload()}
-          style={{
-            padding: "10px 20px",
-            borderRadius: "8px",
-            border: "none",
-            background: "#4e54c8",
-            color: "white",
-            cursor: "pointer",
-          }}
+          style={{ ...buttonStyle, marginTop: "10px" }}
         >
           Retry Quiz
         </button>
@@ -109,28 +111,27 @@ export default function QuizPage() {
 
   const question = questions[currentQuestionIndex];
 
-  // ---------------- HANDLERS ----------------
-
   const handleAnswerSelect = (optionIndex) => {
     setAnswers({ ...answers, [question.id]: optionIndex });
-    setError("");
+    setInlineError("");
   };
 
   const handleNext = () => {
     if (answers[question.id] === undefined) {
-      setError("⚠️ Please choose an answer.");
+      setInlineError("Please choose an answer to continue.");
       return;
     }
     setCurrentQuestionIndex((prev) => prev + 1);
   };
 
   const handlePrev = () => {
+    setInlineError("");
     setCurrentQuestionIndex((prev) => prev - 1);
   };
 
   const handleSubmit = async () => {
     if (questions.some((q) => answers[q.id] === undefined)) {
-      setError("⚠️ Answer all questions.");
+      setInlineError("Answer all questions before submitting.");
       return;
     }
 
@@ -154,8 +155,6 @@ export default function QuizPage() {
       alert(err.message || "Submission failed");
     }
   };
-
-  // ---------------- UI ----------------
 
   return (
     <div
@@ -220,57 +219,25 @@ export default function QuizPage() {
         </motion.div>
       </AnimatePresence>
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {inlineError && (
+        <p style={{ color: "#d94b4b", marginTop: "10px" }}>{inlineError}</p>
+      )}
 
       <div style={{ marginTop: "20px" }}>
         {currentQuestionIndex > 0 && (
           <button
             onClick={handlePrev}
-            style={{
-              padding: "12px 18px",
-              borderRadius: "10px",
-              border: "none",
-              background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
-              color: "white",
-              fontWeight: 600,
-              cursor: "pointer",
-              boxShadow: "0 10px 25px rgba(64,132,207,0.25)",
-              marginRight: "8px",
-            }}
+            style={{ ...buttonStyle, marginRight: "8px" }}
           >
             Previous
           </button>
         )}
         {currentQuestionIndex < questions.length - 1 ? (
-          <button
-            onClick={handleNext}
-            style={{
-              padding: "12px 18px",
-              borderRadius: "10px",
-              border: "none",
-              background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
-              color: "white",
-              fontWeight: 600,
-              cursor: "pointer",
-              boxShadow: "0 10px 25px rgba(64,132,207,0.25)",
-            }}
-          >
+          <button onClick={handleNext} style={buttonStyle}>
             Next
           </button>
         ) : (
-          <button
-            onClick={handleSubmit}
-            style={{
-              padding: "12px 18px",
-              borderRadius: "10px",
-              border: "none",
-              background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
-              color: "white",
-              fontWeight: 600,
-              cursor: "pointer",
-              boxShadow: "0 10px 25px rgba(64,132,207,0.25)",
-            }}
-          >
+          <button onClick={handleSubmit} style={buttonStyle}>
             Submit Quiz
           </button>
         )}
