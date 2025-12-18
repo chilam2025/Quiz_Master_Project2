@@ -10,6 +10,7 @@ export default function ResultsPage() {
 
   const [scoreData, setScoreData] = useState(null);
   const [average, setAverage] = useState(0);
+  const [answers, setAnswers] = useState([]);
 
   const user = JSON.parse(localStorage.getItem("user"));
   const token = user?.token;
@@ -49,6 +50,7 @@ export default function ResultsPage() {
           score: latestAttempt.score,
           total: latestAttempt.total,
         });
+        setAnswers(latestAttempt.answers_detail || []);
       } catch (err) {
         console.error("Failed to load results:", err);
         setScoreData({ score: 0, total: 0 });
@@ -117,6 +119,49 @@ export default function ResultsPage() {
       <div style={{ color: "#2f557a", marginTop: "10px" }}>
         Average across attempts: {average}%
       </div>
+
+      {answers.length > 0 && (
+        <div
+          style={{
+            marginTop: "30px",
+            textAlign: "left",
+            maxWidth: "800px",
+            marginInline: "auto",
+          }}
+        >
+          <h3 style={{ color: "#1f6fb2", marginBottom: "12px" }}>
+            Review your answers
+          </h3>
+          {answers.map((ans, idx) => (
+            <div
+              key={idx}
+              style={{
+                background: "rgba(255,255,255,0.95)",
+                border: "1px solid rgba(128,178,232,0.35)",
+                borderRadius: "10px",
+                padding: "12px 14px",
+                marginBottom: "10px",
+              }}
+            >
+              <div style={{ fontWeight: 600, color: "#0f2b46" }}>
+                Q{idx + 1}: {ans.question}
+              </div>
+              <div style={{ marginTop: "6px", color: ans.is_correct ? "#1f7a3d" : "#d94b4b" }}>
+                Your answer:{" "}
+                <strong>
+                  {ans.selected_text ?? "—"}
+                </strong>{" "}
+                {ans.is_correct ? "✓" : "✕"}
+              </div>
+              {!ans.is_correct && (
+                <div style={{ marginTop: "4px", color: "#1f6fb2" }}>
+                  Correct answer: <strong>{ans.correct_text ?? "—"}</strong>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       <motion.button
         onClick={() => navigate("/quizzes")}
