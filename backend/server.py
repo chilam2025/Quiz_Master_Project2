@@ -1042,5 +1042,13 @@ if __name__ == "__main__":
     with app.app_context():
         db.create_all()
         print(f"Using database: {app.config['SQLALCHEMY_DATABASE_URI']}")
-    print("Backend running on http://127.0.0.1:5000")
-    app.run(host="127.0.0.1", port=5000, debug=True, use_reloader=False)
+    host = os.environ.get("FLASK_RUN_HOST", "0.0.0.0")
+    port = int(os.environ.get("FLASK_RUN_PORT", 5000))
+    print(f"Backend running on http://{host}:{port}")
+    # Bind to all interfaces so the container is reachable from other services/host.
+    app.run(
+        host=host,
+        port=port,
+        debug=True,
+        use_reloader=False,
+    )
