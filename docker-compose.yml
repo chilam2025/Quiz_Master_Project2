@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  backend:
+    build: ./backend
+    container_name: quiz-backend
+    ports:
+      - "5000:5000"
+    environment:
+      # Override to point at your PostgreSQL instance; falls back to the baked-in default URL in server.py if unset.
+      DATABASE_URL: ${DATABASE_URL:-postgresql://quiz_db_14ek_user:V1DJtyn9RYFKN2p6Tx1WcoTSZ4NvDAHH@dpg-d4ti9hbuibrs73ano130-a.oregon-postgres.render.com/quiz_db_14ek?sslmode=require}
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend/quiz-frontend
+      args:
+        REACT_APP_API_URL: http://backend:5000
+    container_name: quiz-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
