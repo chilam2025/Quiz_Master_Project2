@@ -39,9 +39,22 @@ const actionButtonStyle = {
   transition: "transform 0.2s ease, box-shadow 0.2s ease",
 };
 
+const menuItemStyle = {
+  display: "block",
+  width: "100%",
+  textAlign: "left",
+  padding: "10px 14px",
+  background: "white",
+  border: "none",
+  borderBottom: "1px solid #eef3f9",
+  color: "#0f2b46",
+  cursor: "pointer",
+};
+
 export default function QuizList() {
   const [quizzes, setQuizzes] = useState([]);
   const [activeQuizId, setActiveQuizId] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   const navigate = useNavigate();
   const token = localStorage.getItem("token");
@@ -62,6 +75,77 @@ export default function QuizList() {
 
   return (
     <div style={pageStyle}>
+      {/* Top-left menu */}
+      <div style={{ position: "fixed", top: 16, left: 16, zIndex: 10 }}>
+        <button
+          aria-label="Open menu"
+          onClick={() => setMenuOpen((prev) => !prev)}
+          style={{
+            background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
+            border: "1px solid #57a5ff",
+            borderRadius: "10px",
+            padding: "10px",
+            cursor: "pointer",
+            boxShadow: "0 10px 24px rgba(64,132,207,0.25)",
+          }}
+        >
+          <div style={{ width: 24, height: 2, background: "white", marginBottom: 5, borderRadius: 999 }} />
+          <div style={{ width: 24, height: 2, background: "white", marginBottom: 5, borderRadius: 999 }} />
+          <div style={{ width: 24, height: 2, background: "white", borderRadius: 999 }} />
+        </button>
+
+        {menuOpen && (
+          <div
+            style={{
+              marginTop: 8,
+              background: "white",
+              border: "1px solid #c7d9ef",
+              borderRadius: "12px",
+              boxShadow: "0 10px 24px rgba(64,132,207,0.18)",
+              overflow: "hidden",
+              minWidth: "180px",
+            }}
+          >
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                navigate("/predict");
+              }}
+              style={menuItemStyle}
+            >
+              See Prediction
+            </button>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                navigate("/history");
+              }}
+              style={menuItemStyle}
+            >
+              See History
+            </button>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                navigate("/select-role");
+              }}
+              style={menuItemStyle}
+            >
+              Back to Roles
+            </button>
+            <button
+              onClick={() => {
+                setMenuOpen(false);
+                handleLogout();
+              }}
+              style={{ ...menuItemStyle, color: "#d94b4b" }}
+            >
+              Logout
+            </button>
+          </div>
+        )}
+      </div>
+
       <div style={{ textAlign: "center" }}>
         <h1 style={{ marginBottom: "30px", color: "#1f6fb2" }}>
           Available Quizzes
@@ -141,70 +225,6 @@ export default function QuizList() {
             </motion.div>
           ))}
         </div>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          marginTop: "40px",
-          gap: "12px",
-        }}
-      >
-        <button
-          onClick={() => navigate("/history")}
-          style={actionButtonStyle}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-1px)";
-            e.currentTarget.style.boxShadow =
-              "0 14px 28px rgba(64,132,207,0.25)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.boxShadow =
-              "0 10px 25px rgba(64,132,207,0.25)";
-          }}
-        >
-          View My History
-        </button>
-
-        <button
-          onClick={() => navigate("/predict")}
-          style={actionButtonStyle}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-1px)";
-            e.currentTarget.style.boxShadow =
-              "0 14px 28px rgba(64,132,207,0.25)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.boxShadow =
-              "0 10px 25px rgba(64,132,207,0.25)";
-          }}
-        >
-          View My Prediction
-        </button>
-
-        <button
-          onClick={handleLogout}
-          style={{
-            ...actionButtonStyle,
-            background: "linear-gradient(120deg, #6e8197, #8aa2b8)",
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.transform = "translateY(-1px)";
-            e.currentTarget.style.boxShadow =
-              "0 14px 28px rgba(64,132,207,0.25)";
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.transform = "translateY(0)";
-            e.currentTarget.style.boxShadow =
-              "0 10px 25px rgba(64,132,207,0.25)";
-          }}
-        >
-          Log Out
-        </button>
       </div>
     </div>
   );
