@@ -86,7 +86,12 @@ function App() {
         />
         <Route
         path="/insights"
-         element={<InsightsPage />} />
+          element={
+            <ProtectedRoute>
+              <InsightsPage />
+            </ProtectedRoute>
+          }
+        />
 
         <Route
           path="/predict"
