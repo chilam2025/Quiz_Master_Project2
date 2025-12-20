@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from sqlalchemy import not_
 from math import isfinite
 import jwt
 import json
@@ -369,9 +370,11 @@ def login():
     token = generate_token(user.id, hours=12)
     return jsonify({"message": "Login successful", "user_id": user.id, "email": user.email, "token": token}), 200
 
-# -------------------------
+# =====================================================
+# Module 1: Quiz Manager (CRUD + taking quizzes)
+# =====================================================
 # Quiz creation / admin (optional)
-# -------------------------
+
 @app.route("/quizzes", methods=["POST"])
 def create_quiz():
     data = request.get_json() or {}
@@ -404,10 +407,70 @@ def add_question(quiz_id):
     db.session.commit()
     return jsonify({"message": "Question added successfully", "question_id": q.id}), 201
 
+
+@app.route("/quizzes/<int:quiz_id>/questions/bulk", methods=["POST"])
+def add_questions_bulk(quiz_id):
+    data = request.get_json()
+    quiz = Quiz.query.get(quiz_id)
+    if not quiz:
+        return jsonify({"error": "Quiz not found"}), 404
+
+    valid_difficulties = ["Very Easy", "Easy", "Medium", "Hard"]
+    created = []
+
+    for item in data:
+        question_text = item.get("question_text")
+        options = item.get("options")
+        correct = item.get("correct_answer")
+        difficulty = item.get("difficulty", "Medium")
+
+        if not question_text or not options or correct is None:
+            return jsonify({"error": "Missing fields"}), 400
+
+        if difficulty not in valid_difficulties:
+            return jsonify({"error": f"Invalid difficulty: {difficulty}"}), 400
+
+        correct_index = options.index(correct)
+
+        q = Question(
+            quiz_id=quiz_id,
+            question=question_text,
+            options=json.dumps(options),
+            correct_answer=correct_index,
+            difficulty=difficulty
+        )
+        db.session.add(q)
+        created.append({"question": question_text, "difficulty": difficulty})
+
+    db.session.commit()
+    return jsonify({"message": f"{len(created)} questions added", "questions": created}), 201
+
+@app.route("/quizzes/<int:quiz_id>", methods=["PUT"])
+def update_quiz(quiz_id):
+    data = request.get_json()
+    quiz = Quiz.query.get(quiz_id)
+    if not quiz:
+        return jsonify({"error": "Quiz not found"}), 404
+
+    quiz.title = data.get("title", quiz.title)
+    quiz.description = data.get("description", quiz.description)
+    db.session.commit()
+
+    return jsonify({"message": "Quiz updated"})
+
+@app.route("/quizzes/<int:quiz_id>", methods=["DELETE"])
+def delete_quiz(quiz_id):
+    quiz = Quiz.query.get(quiz_id)
+    if not quiz:
+        return jsonify({"error": "Quiz not found"}), 404
+    db.session.delete(quiz)
+    db.session.commit()
+    return jsonify({"message": "Quiz deleted"})
+
+
 # -------------------------
 # Public read endpoints
 # -------------------------
-
 
 @app.route("/quizzes/<int:quiz_id>/start", methods=["POST"])
 @token_required
@@ -509,9 +572,6 @@ def get_quiz(quiz_id):
 
 # Single question (index) endpoint - useful for one-question-per-page UI
 
-#Getting the questions by difficulty and randomizes them
-from sqlalchemy import not_
-
 @app.route("/quizzes/<int:quiz_id>/questions/random/<difficulty>", methods=["GET"])
 @token_required
 def get_random_questions(quiz_id, difficulty):
@@ -551,6 +611,30 @@ def get_random_questions(quiz_id, difficulty):
             for q in ordered_questions
         ]
     }), 200
+
+@app.route("/users/<int:user_id>/attempts", methods=["GET"])
+@token_required
+def get_user_attempts(user_id):
+    # ensure token user matches requested user
+    if request.current_user.id != user_id:
+        return jsonify({"error": "Unauthorized"}), 401
+    attempts = QuizAttempt.query.filter_by(
+        user_id=user_id,
+        status="submitted"
+    ).all()
+    result = []
+    for a in attempts:
+        result.append({
+            "quiz_id": a.quiz_id,
+            "score": a.score,
+            "total": a.total_questions,
+            "percentage": a.percentage,
+            "status": a.status,
+            "timestamp": a.timestamp.isoformat(),
+            "duration_seconds": a.duration_seconds,
+            "answers_detail": a.answers_detail,
+        })
+    return jsonify(result)
 
 @app.route(
     "/quizzes/<int:quiz_id>/attempts/<int:attempt_id>/question/<int:index>",
@@ -667,96 +751,154 @@ def submit_quiz(quiz_id):
 
 
 
-@app.route("/users/<int:user_id>/attempts", methods=["GET"])
+# =====================================================
+# Module 2: Results Tracker (attempt storage + stats)
+# =====================================================
+
+@app.route("/results", methods=["POST"])
 @token_required
-def get_user_attempts(user_id):
-    # ensure token user matches requested user
-    if request.current_user.id != user_id:
-        return jsonify({"error": "Unauthorized"}), 401
-    attempts = QuizAttempt.query.filter_by(
-        user_id=user_id,
-        status="submitted"
-    ).all()
-    result = []
+def create_result():
+    data = request.get_json() or {}
+    quiz_id = data.get("quiz_id")
+    score = data.get("score")
+    total_questions = data.get("total_questions")
+
+    if quiz_id is None or score is None or total_questions is None:
+        return jsonify({"error": "quiz_id, score, and total_questions are required"}), 400
+
+    try:
+        quiz_id = int(quiz_id)
+        score = int(score)
+        total_questions = int(total_questions)
+    except (TypeError, ValueError):
+        return jsonify({"error": "quiz_id, score, and total_questions must be numbers"}), 400
+
+    if total_questions <= 0:
+        return jsonify({"error": "total_questions must be greater than zero"}), 400
+
+    question_order = data.get("question_order") or []
+    if not isinstance(question_order, list):
+        return jsonify({"error": "question_order must be a list"}), 400
+
+    answers_detail = data.get("answers_detail")
+    duration_seconds = data.get("duration_seconds")
+
+    percentage = (score / total_questions) * 100
+    timestamp = datetime.utcnow()
+
+    attempt = QuizAttempt(
+        quiz_id=quiz_id,
+        user_id=request.current_user.id,
+        score=score,
+        total_questions=total_questions,
+        percentage=percentage,
+        timestamp=timestamp,
+        started_at=timestamp - timedelta(seconds=int(duration_seconds)) if duration_seconds else timestamp,
+        duration_seconds=int(duration_seconds) if duration_seconds is not None else None,
+        question_order=question_order,
+        answers_detail=answers_detail,
+        status="submitted",
+    )
+
+    db.session.add(attempt)
+    db.session.commit()
+
+    return jsonify({
+        "id": attempt.id,
+        "quiz_id": attempt.quiz_id,
+        "score": attempt.score,
+        "total_questions": attempt.total_questions,
+        "percentage": attempt.percentage,
+        "timestamp": attempt.timestamp.isoformat(),
+        "duration_seconds": attempt.duration_seconds,
+        "question_order": attempt.question_order,
+        "answers_detail": attempt.answers_detail,
+    }), 201
+
+
+@app.route("/results", methods=["GET"])
+@token_required
+def list_results():
+    """Return submitted attempts for the authenticated user."""
+    quiz_id = request.args.get("quiz_id")
+    query = QuizAttempt.query.filter_by(user_id=request.current_user.id, status="submitted")
+
+    if quiz_id is not None:
+        try:
+            quiz_id_int = int(quiz_id)
+            query = query.filter_by(quiz_id=quiz_id_int)
+        except ValueError:
+            return jsonify({"error": "quiz_id must be numeric"}), 400
+
+    attempts = query.order_by(QuizAttempt.timestamp.desc()).all()
+
+    payload = []
     for a in attempts:
-        result.append({
+        payload.append({
+            "id": a.id,
             "quiz_id": a.quiz_id,
             "score": a.score,
-            "total": a.total_questions,
+            "total_questions": a.total_questions,
             "percentage": a.percentage,
-            "status": a.status,
             "timestamp": a.timestamp.isoformat(),
             "duration_seconds": a.duration_seconds,
+            "question_order": a.question_order,
             "answers_detail": a.answers_detail,
         })
-    return jsonify(result)
-
-@app.route("/quizzes/<int:quiz_id>", methods=["DELETE"])
-def delete_quiz(quiz_id):
-    quiz = Quiz.query.get(quiz_id)
-    if not quiz:
-        return jsonify({"error": "Quiz not found"}), 404
-    db.session.delete(quiz)
-    db.session.commit()
-    return jsonify({"message": "Quiz deleted"})
+    return jsonify(payload)
 
 
-@app.route("/quizzes/<int:quiz_id>", methods=["PUT"])
-def update_quiz(quiz_id):
-    data = request.get_json()
-    quiz = Quiz.query.get(quiz_id)
-    if not quiz:
-        return jsonify({"error": "Quiz not found"}), 404
+@app.route("/results/stats", methods=["GET"])
+@token_required
+def results_stats():
+    """Return aggregate stats for the authenticated user (optionally filtered by quiz)."""
+    quiz_id = request.args.get("quiz_id")
+    query = QuizAttempt.query.filter_by(user_id=request.current_user.id, status="submitted")
 
-    quiz.title = data.get("title", quiz.title)
-    quiz.description = data.get("description", quiz.description)
-    db.session.commit()
+    if quiz_id is not None:
+        try:
+            quiz_id_int = int(quiz_id)
+            query = query.filter_by(quiz_id=quiz_id_int)
+        except ValueError:
+            return jsonify({"error": "quiz_id must be numeric"}), 400
 
-    return jsonify({"message": "Quiz updated"})
+    attempts = query.order_by(QuizAttempt.timestamp.desc()).all()
+    if not attempts:
+        return jsonify({
+            "attempts": 0,
+            "average_percentage": None,
+            "best_percentage": None,
+            "latest_percentage": None,
+            "total_correct": 0,
+            "total_questions": 0,
+        })
 
+    percentages = [a.percentage for a in attempts if a.percentage is not None]
+    scores = [a.score for a in attempts if a.score is not None]
+    totals = [a.total_questions for a in attempts if a.total_questions is not None]
 
-@app.route("/quizzes/<int:quiz_id>/questions/bulk", methods=["POST"])
-def add_questions_bulk(quiz_id):
-    data = request.get_json()
-    quiz = Quiz.query.get(quiz_id)
-    if not quiz:
-        return jsonify({"error": "Quiz not found"}), 404
+    average_pct = sum(percentages) / len(percentages) if percentages else None
+    best_pct = max(percentages) if percentages else None
+    latest_pct = percentages[0] if percentages else None
 
-    valid_difficulties = ["Very Easy", "Easy", "Medium", "Hard"]
-    created = []
-
-    for item in data:
-        question_text = item.get("question_text")
-        options = item.get("options")
-        correct = item.get("correct_answer")
-        difficulty = item.get("difficulty", "Medium")
-
-        if not question_text or not options or correct is None:
-            return jsonify({"error": "Missing fields"}), 400
-
-        if difficulty not in valid_difficulties:
-            return jsonify({"error": f"Invalid difficulty: {difficulty}"}), 400
-
-        correct_index = options.index(correct)
-
-        q = Question(
-            quiz_id=quiz_id,
-            question=question_text,
-            options=json.dumps(options),
-            correct_answer=correct_index,
-            difficulty=difficulty
-        )
-        db.session.add(q)
-        created.append({"question": question_text, "difficulty": difficulty})
-
-    db.session.commit()
-    return jsonify({"message": f"{len(created)} questions added", "questions": created}), 201
-
-
+    return jsonify({
+        "attempts": len(attempts),
+        "average_percentage": round(average_pct, 2) if average_pct is not None else None,
+        "best_percentage": round(best_pct, 2) if best_pct is not None else None,
+        "latest_percentage": round(latest_pct, 2) if latest_pct is not None else None,
+        "total_correct": sum(scores),
+        "total_questions": sum(totals),
+    })
 
 # -------------------------
 # Module 3: Performance Predictor endpoints
 # -------------------------
+def create_synthetic_quiz_for_attempt(quiz_title):
+    """Create a quiz used for synthetic attempts and return its id."""
+    q = Quiz(title=quiz_title, description="Synthetic quiz for testing Module 3")
+    db.session.add(q)
+    db.session.commit()
+    return q.id
 
 # Ensure folder exists for CSVs
 os.makedirs("ml_datasets", exist_ok=True)
@@ -1228,6 +1370,9 @@ def predict_next_score():
     }), 200
 
 
+# -------------------------------------------------------
+# Weekly leaderboard (top 10, resets each week)
+# -------------------------------------------------------
 
 
 @app.route("/leaderboard/weekly", methods=["GET"])
@@ -1306,6 +1451,7 @@ def weekly_leaderboard():
 # =====================================================
 # MAIN ANALYTICS ENDPOINT
 # =====================================================
+
 
 
 
