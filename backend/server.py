@@ -19,6 +19,16 @@ import pandas as pd
 import csv
 import secrets
 import requests
+from dotenv import load_dotenv
+from pathlib import Path
+
+
+ENV_PATH = Path(__file__).with_name(".env")
+load_dotenv(ENV_PATH)
+load_dotenv(Path(__file__).with_name(".env"))  # loads backend/.env if server.py is in backend/
+
+
+
 
 
 
@@ -41,6 +51,8 @@ app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
 )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 app.config["SECRET_KEY"] = os.environ.get("QUIZ_SECRET", "supersecretkey123")
+print("DATABASE_URL from env =", os.environ.get("DATABASE_URL"))
+print("SQLALCHEMY_DATABASE_URI =", app.config["SQLALCHEMY_DATABASE_URI"])
 
 
 db = SQLAlchemy(app)
@@ -129,26 +141,38 @@ import os
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
 FROM_EMAIL = os.environ.get("FROM_EMAIL", "no-reply@yourdomain.com")
 
-def send_otp_email(to_email, code):
-    if not RESEND_API_KEY:
-        raise RuntimeError("RESEND_API_KEY is not set")
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
-    r = requests.post(
-        "https://api.resend.com/emails",
-        headers={
-            "Authorization": f"Bearer {RESEND_API_KEY}",
-            "Content-Type": "application/json",
-        },
-        json={
-            "from": FROM_EMAIL,
-            "to": [to_email],
-            "subject": "Your Quiz OTP Code",
-            "html": f"<p>Your OTP code is: <b>{code}</b></p><p>It expires in {OTP_TTL_MINUTES} minutes.</p>",
-        },
-        timeout=10,
-    )
-    if r.status_code >= 400:
-        raise RuntimeError(f"Email send failed: {r.status_code} {r.text}")
+SMTP_EMAIL = os.environ.get("SMTP_EMAIL")
+SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
+
+def send_otp_email(to_email, code):
+    if not SMTP_EMAIL or not SMTP_PASSWORD:
+        raise RuntimeError("SMTP credentials not set")
+
+    msg = MIMEMultipart()
+    msg["From"] = SMTP_EMAIL
+    msg["To"] = to_email
+    msg["Subject"] = "Your Quiz OTP Code"
+
+    body = f"""
+    <h3>Your OTP Code</h3>
+    <p><b>{code}</b></p>
+    <p>This code expires in 10 minutes.</p>
+    """
+    msg.attach(MIMEText(body, "html"))
+
+    try:
+        server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.starttls()
+        server.login(SMTP_EMAIL, SMTP_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+    except Exception as e:
+        raise RuntimeError(f"SMTP error: {str(e)}")
+
 
 
 # -------------------------
@@ -208,8 +232,25 @@ def register():
     if not re.match(email_regex, email):
         return jsonify({"error": "Invalid email format"}), 400
 
-    if User.query.filter_by(email=email).first():
-        return jsonify({"error": "Email already exists"}), 400
+    existing = User.query.filter_by(email=email).first()
+    if existing:
+        if not existing.is_verified:
+            # resend OTP for unverified user
+            code = set_user_otp(existing)
+            db.session.commit()
+            try:
+                send_otp_email(email, code)
+            except Exception as e:
+                return jsonify({"error": f"Failed to resend OTP email: {str(e)}"}), 500
+
+            return jsonify({
+                "message": "Account exists but not verified. OTP resent.",
+                "email": existing.email,
+                "requires_verification": True
+            }), 200
+
+        # verified user exists
+        return jsonify({"error": "Email already exists. Please login."}), 400
 
     password_regex = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$"
     if not re.match(password_regex, password):
@@ -1188,195 +1229,6 @@ def predict_next_score():
 
 
 
-# ===========================================
-# AI + USER INSIGHTS MODULE (NEW FEATURES)
-# ===========================================
-
-
-
-
-# -------------------------------------------------------
-# 1. Weighted Average Prediction
-# -------------------------------------------------------
-def weighted_average_prediction(scores):
-    if len(scores) == 0:
-        return None
-
-    weights = np.arange(1, len(scores) + 1)  # 1,2,3...n
-    weighted_avg = np.dot(scores, weights) / weights.sum()
-    return round(weighted_avg, 2)
-
-
-# -------------------------------------------------------
-# 2. Smart Difficulty Recommendation
-# -------------------------------------------------------
-def recommend_difficulty(predicted_score):
-    if predicted_score is None:
-        return "Easy"
-
-    if predicted_score >= 80:
-        return "Hard"
-    elif predicted_score >= 60:
-        return "Medium"
-    else:
-        return "Easy"
-
-
-# -------------------------------------------------------
-# 3. Personal Learning Style Detection
-# -------------------------------------------------------
-def detect_learning_style(scores):
-    if len(scores) < 3:
-        return "Not enough data"
-
-    trend = scores[-1] - scores[-3]
-
-    if trend > 10:
-        return "Fast Improver"
-    elif trend < -10:
-        return "Struggling Recently"
-    elif np.std(scores) < 8:
-        return "Consistent Learner"
-    else:
-        return "Inconsistent Learner"
-
-
-# -------------------------------------------------------
-# 4. Weak Topic Analysis
-# -------------------------------------------------------
-def find_weak_topics(attempts):
-    topic_scores = {}
-
-    for att in attempts:
-        topic = att.topic
-        score = att.score
-
-        if topic not in topic_scores:
-            topic_scores[topic] = []
-        topic_scores[topic].append(score)
-
-    weak = []
-    for t, vals in topic_scores.items():
-        avg = sum(vals) / len(vals)
-        if avg < 60:
-            weak.append({"topic": t, "avg_score": round(avg, 2)})
-
-    return weak
-
-
-# -------------------------------------------------------
-# 5. Adaptive Quiz Generation
-# -------------------------------------------------------
-def adaptive_quiz_config(difficulty, weak_topics):
-    return {
-        "difficulty": difficulty,
-        "focus_topics": [t["topic"] for t in weak_topics[:2]]  # pick top 2 weak
-    }
-
-
-# -------------------------------------------------------
-# 6. Personalized Study Tips
-# -------------------------------------------------------
-def study_tips(scores, weak_topics):
-    tips = []
-
-    if len(scores) >= 2 and scores[-1] < scores[-2]:
-        tips.append("Your last score dropped — consider reviewing hard topics.")
-
-    if weak_topics:
-        tips.append(f"Practice more: {', '.join([t['topic'] for t in weak_topics])}")
-
-    if len(scores) >= 4 and np.mean(scores[-4:]) >= 80:
-        tips.append("Excellent consistency — try challenging quizzes!")
-
-    if not tips:
-        tips.append("Keep practicing regularly to improve steadily.")
-
-    return tips
-
-
-# -------------------------------------------------------
-# 7. Anomaly Detection
-# -------------------------------------------------------
-def detect_anomaly(scores):
-    if len(scores) < 3:
-        return None
-
-    last = scores[-1]
-    avg_prev = np.mean(scores[:-1])
-
-    if last < avg_prev - 20:
-        return "Sudden Performance Drop"
-    elif last > avg_prev + 20:
-        return "Unusual Score Spike"
-    return None
-
-
-# -------------------------------------------------------
-# 8. Recommendation Engine
-# -------------------------------------------------------
-def recommend_quiz(predicted_score, weak_topics):
-    if predicted_score is None:
-        return {"title": "Beginner Starter Quiz", "reason": "New user"}
-
-    if weak_topics:
-        return {
-            "title": f"{weak_topics[0]['topic']} Basics",
-            "reason": f"You are weak in {weak_topics[0]['topic']}"
-        }
-
-    if predicted_score < 60:
-        return {"title": "Fundamental Concepts Quiz", "reason": "Improve basics"}
-
-    if predicted_score < 80:
-        return {"title": "Intermediate Practice Quiz", "reason": "Match your level"}
-
-    return {"title": "Advanced Challenge Quiz", "reason": "You seem ready!"}
-
-
-# -------------------------------------------------------
-# 9. Streak Tracking System
-# -------------------------------------------------------
-def calculate_streak(attempts):
-    if not attempts:
-        return 0
-
-    attempts_sorted = sorted(attempts, key=lambda x: x.timestamp, reverse=True)
-    streak = 1
-    last_date = attempts_sorted[0].timestamp.date()
-
-    for att in attempts_sorted[1:]:
-        cur_date = att.timestamp.date()
-        if (last_date - cur_date).days == 1:
-            streak += 1
-            last_date = cur_date
-        else:
-            break
-
-    return streak
-
-
-# -------------------------------------------------------
-# 10. Category-Based Score Tracking
-# -------------------------------------------------------
-def category_performance(attempts):
-    categories = {}
-
-    for att in attempts:
-        cat = att.topic
-        if cat not in categories:
-            categories[cat] = []
-        categories[cat].append(att.score)
-
-    return {
-        cat: round(sum(v) / len(v), 2)
-        for cat, v in categories.items()
-    }
-
-# -------------------------------------------------------
-# Weekly leaderboard (top 10, resets each week)
-# -------------------------------------------------------
-
 
 @app.route("/leaderboard/weekly", methods=["GET"])
 @token_required
@@ -1455,37 +1307,6 @@ def weekly_leaderboard():
 # MAIN ANALYTICS ENDPOINT
 # =====================================================
 
-@app.route("/analytics", methods=["GET"])
-@token_required
-def analytics():
-    user = request.current_user
-    attempts = QuizAttempt.query.filter_by(user_id=user.id).all()
-    scores = [a.score for a in attempts]
-
-    # AI MODULE COMPUTATION
-    predicted = weighted_average_prediction(scores)
-    difficulty = recommend_difficulty(predicted)
-    learning_style = detect_learning_style(scores)
-    weak = find_weak_topics(attempts)
-    tips = study_tips(scores, weak)
-    anomaly = detect_anomaly(scores)
-    quiz_rec = recommend_quiz(predicted, weak)
-    streak = calculate_streak(attempts)
-    category_perf = category_performance(attempts)
-    adaptive_config = adaptive_quiz_config(difficulty, weak)
-
-    return jsonify({
-        "predicted_score": predicted,
-        "difficulty": difficulty,
-        "learning_style": learning_style,
-        "weak_topics": weak,
-        "study_tips": tips,
-        "anomaly": anomaly,
-        "recommended_quiz": quiz_rec,
-        "streak": streak,
-        "category_performance": category_perf,
-        "adaptive_quiz": adaptive_config
-    })
 
 
 # -------------------------
