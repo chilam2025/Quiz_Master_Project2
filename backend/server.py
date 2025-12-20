@@ -7,6 +7,7 @@ import jwt
 import json
 import os
 from functools import wraps
+from collections import defaultdict
 import re
 import dns.resolver
 import numpy as np
@@ -82,6 +83,8 @@ class QuizAttempt(db.Model):
     total_questions = db.Column(db.Integer, nullable=True)
     percentage = db.Column(db.Float, nullable=True)
     timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+    started_at = db.Column(db.DateTime, default=datetime.utcnow)
+    duration_seconds = db.Column(db.Integer, nullable=True)
     question_order = db.Column(db.JSON, nullable=False)
     status = db.Column(db.String(20), default="in_progress")
     # Stores per-question review details (selected vs correct for each)
@@ -260,10 +263,15 @@ def start_quiz(quiz_id):
             quiz_id=quiz_id,
             user_id=current_user.id,
             question_order=[],
-            status="in_progress"
-        )
+            status="in_progress",
+            started_at=datetime.utcnow(),
+            duration_seconds=None        )
         db.session.add(attempt)
         db.session.flush()  # get ID without commit
+
+    else:
+        attempt.started_at = datetime.utcnow()
+        attempt.duration_seconds = None
 
     questions = Question.query.filter_by(
         quiz_id=quiz_id,
@@ -276,6 +284,7 @@ def start_quiz(quiz_id):
     selected = random.sample(questions, min(20, len(questions)))
     attempt.question_order = [q.id for q in selected]
     attempt.timestamp = datetime.utcnow()
+    attempt.started_at = attempt.started_at or datetime.utcnow()
 
     db.session.commit()
 
@@ -466,6 +475,11 @@ def submit_quiz(quiz_id):
     attempt.total_questions = len(question_ids)
     attempt.percentage = (score / len(question_ids)) * 100
     attempt.timestamp = datetime.utcnow()
+    calculated_duration = int((attempt.timestamp - (attempt.started_at or attempt.timestamp)).total_seconds())
+    if calculated_duration < 0:
+        calculated_duration = 0
+
+    attempt.duration_seconds = calculated_duration
     attempt.answers_detail = answers_detail
 
     # ✅ reset AFTER grading
@@ -502,6 +516,7 @@ def get_user_attempts(user_id):
             "percentage": a.percentage,
             "status": a.status,
             "timestamp": a.timestamp.isoformat(),
+            "duration_seconds": a.duration_seconds,
             "answers_detail": a.answers_detail,
         })
     return jsonify(result)
@@ -1017,6 +1032,83 @@ def category_performance(attempts):
         for cat, v in categories.items()
     }
 
+# -------------------------------------------------------
+# Weekly leaderboard (top 10, resets each week)
+# -------------------------------------------------------
+
+
+@app.route("/leaderboard/weekly", methods=["GET"])
+@token_required
+def weekly_leaderboard():
+    now = datetime.utcnow()
+    start_date = now.date() - timedelta(days=now.weekday())
+    start_of_week = datetime.combine(start_date, datetime.min.time())
+    end_of_week = start_of_week + timedelta(days=7)
+
+    attempts = QuizAttempt.query.filter(
+        QuizAttempt.status == "submitted",
+        QuizAttempt.timestamp >= start_of_week,
+        QuizAttempt.timestamp < end_of_week,
+    ).all()
+
+    user_stats = defaultdict(lambda: {"percentages": [], "durations": []})
+
+    for att in attempts:
+        if att.percentage is None:
+            continue
+        stats = user_stats[att.user_id]
+        stats["percentages"].append(att.percentage)
+        if att.duration_seconds is not None:
+            stats["durations"].append(att.duration_seconds)
+
+    if not user_stats:
+        return jsonify({
+            "week_start": start_of_week.isoformat(),
+            "week_end": end_of_week.isoformat(),
+            "leaders": []
+        }), 200
+
+    users = User.query.filter(User.id.in_(user_stats.keys())).all()
+    user_map = {u.id: u for u in users}
+
+    leaderboard = []
+    for uid, stats in user_stats.items():
+        percentages = stats["percentages"]
+        durations = stats["durations"]
+        avg_pct = round(sum(percentages) / len(percentages), 2)
+        avg_duration = None
+        if durations:
+            avg_duration = int(sum(durations) / len(durations))
+
+        leaderboard.append({
+            "user_id": uid,
+            "email": user_map.get(uid).email if user_map.get(uid) else "Unknown",
+            "average_percentage": avg_pct,
+            "average_duration_seconds": avg_duration,
+            "attempts_count": len(percentages),
+        })
+
+    leaderboard.sort(key=lambda item: (
+        -item["average_percentage"],
+        item["average_duration_seconds"] if item["average_duration_seconds"] is not None else float("inf"),
+    ))
+
+    for idx, entry in enumerate(leaderboard, start=1):
+        entry["rank"] = idx
+        if idx == 1:
+            entry["badge"] = "gold"
+        elif idx == 2:
+            entry["badge"] = "silver"
+        elif idx == 3:
+            entry["badge"] = "bronze"
+        else:
+            entry["badge"] = None
+
+    return jsonify({
+        "week_start": start_of_week.isoformat(),
+        "week_end": end_of_week.isoformat(),
+        "leaders": leaderboard[:10]
+    }), 200
 
 # =====================================================
 # MAIN ANALYTICS ENDPOINT
