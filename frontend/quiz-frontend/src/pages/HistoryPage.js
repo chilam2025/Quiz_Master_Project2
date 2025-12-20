@@ -52,13 +52,27 @@ export default function HistoryPage() {
 
       try {
         setLoading(true);
+        let statsApplied = false;
 
-        const res = await fetch(`${API_URL}/users/${user_id}/attempts`, {
-          headers: { Authorization: `Bearer ${token}` },
+        const res = await fetch(`${API_URL}/results`, {
+            headers: { Authorization: `Bearer ${token}` },
         });
 
         const data = await res.json();
         setAttempts(data);
+        // Fetch aggregates for overall average and counters
+        try {
+          const statsRes = await fetch(`${API_URL}/results/stats`, {
+            headers: { Authorization: `Bearer ${token}` },
+          });
+          const stats = await statsRes.json();
+          if (stats?.average_percentage !== undefined && stats?.average_percentage !== null) {
+            setAverage(stats.average_percentage.toFixed(2));
+            statsApplied = true;
+          }
+        } catch (statsErr) {
+          console.warn("Could not fetch results stats:", statsErr);
+        }
 
         // Group attempts by quiz_id
         const grouped = {};
@@ -80,7 +94,7 @@ export default function HistoryPage() {
         setQuizAttempts(grouped);
         setQuizTitles(titles);
 
-         // Fetch quiz metadata to backfill missing titles (for legacy attempts)
+        // Fetch quiz metadata to backfill missing titles (for legacy attempts)
         try {
           const quizzesRes = await fetch(`${API_URL}/quizzes`);
           const quizzes = await quizzesRes.json();
@@ -96,10 +110,13 @@ export default function HistoryPage() {
         }
 
         // Calculate overall average
-        if (data.length > 0) {
-          const avg =
-            data.reduce((sum, a) => (a.score / a.total) * 100 + sum, 0) /
-            data.length;
+  // Calculate overall average if stats call failed or returned null
+        if (data.length > 0 && !statsApplied) {
+           const avg =
+           data.reduce(
+              (sum, a) => (a.score / a.total_questions) * 100 + sum,
+              0
+            ) / data.length;
           setAverage(avg.toFixed(2));
         }
       } catch (err) {
@@ -210,9 +227,11 @@ export default function HistoryPage() {
             new Date(a.timestamp) - new Date(b.timestamp)
           );
 
-          const averageForQuiz = sortedAttempts.reduce((sum, a) =>
-            (a.score / a.total) * 100 + sum, 0
-          ) / sortedAttempts.length;
+          const averageForQuiz =
+            sortedAttempts.reduce(
+              (sum, a) => (a.score / a.total_questions) * 100 + sum,
+              0
+            ) / sortedAttempts.length;
 
           return (
             <div
@@ -289,7 +308,7 @@ export default function HistoryPage() {
 
                   {/* Graph bars */}
                   {sortedAttempts.map((attempt, index) => {
-                    const percent = (attempt.score / attempt.total) * 100;
+                    const percent = (attempt.score / attempt.total_questions) * 100;
                     const barHeight = Math.max(percent * 0.8, 5); // Minimum height of 5%
                     return (
                       <motion.div
@@ -355,8 +374,7 @@ export default function HistoryPage() {
                 </h4>
                 <div style={{ display: "grid", gap: "12px" }}>
                   {sortedAttempts.map((attempt, index) => {
-                    const percent = (attempt.score / attempt.total) * 100;
-                    return (
+                    const percent = (attempt.score / attempt.total_questions) * 100;                    return (
 
                       <motion.div
                         key={attempt.id || index}
@@ -399,8 +417,7 @@ export default function HistoryPage() {
                         >
                           <span>Score</span>
                           <span>
-                            {attempt.score}/{attempt.total}
-                          </span>
+                            {attempt.score}/{attempt.total_questions}                          </span>
                         </div>
 
                         <div
