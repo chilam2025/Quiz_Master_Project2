@@ -24,6 +24,8 @@ export default function QuizPage() {
   const [fatalError, setFatalError] = useState("");
   const [inlineError, setInlineError] = useState("");
   const [loading, setLoading] = useState(true);
+  const [quizStartedAt, setQuizStartedAt] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
 
   const user = JSON.parse(localStorage.getItem("user"));
   const token = user?.token;
@@ -43,6 +45,9 @@ export default function QuizPage() {
 
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Failed to start quiz");
+
+    setQuizStartedAt(Date.now());
+    setElapsedSeconds(0);
   };
 
   const fetchQuestions = async () => {
@@ -58,6 +63,21 @@ export default function QuizPage() {
 
     return data.questions || [];
   };
+
+ useEffect(() => {
+    let intervalId;
+    if (quizStartedAt) {
+      intervalId = setInterval(() => {
+        setElapsedSeconds(Math.floor((Date.now() - quizStartedAt) / 1000));
+      }, 1000);
+    }
+
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [quizStartedAt]);
 
   useEffect(() => {
     async function loadQuiz() {
@@ -86,6 +106,10 @@ export default function QuizPage() {
 
     loadQuiz();
   }, [id, difficulty, token]);
+
+  const formattedElapsed = new Date(elapsedSeconds * 1000)
+    .toISOString()
+    .substring(14, 19);
 
   if (loading) {
     return (
@@ -144,8 +168,8 @@ export default function QuizPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ answers: answersList }),
-      });
+        body: JSON.stringify({ answers: answersList, duration_seconds: elapsedSeconds }),
+              });
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -170,6 +194,21 @@ export default function QuizPage() {
       }}
     >
       <h2 style={{ color: "#1f6fb2" }}>Hello {user.email}</h2>
+
+        <div
+        style={{
+          display: "inline-flex",
+          alignItems: "center",
+          gap: "8px",
+          padding: "8px 12px",
+          borderRadius: "10px",
+          background: "rgba(87,165,255,0.12)",
+          color: "#1f6fb2",
+          fontWeight: 700,
+        }}
+      >
+        ⏱️ Time elapsed: {formattedElapsed}
+      </div>
 
       <p>
         Question {currentQuestionIndex + 1} of {questions.length}
