@@ -3,6 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+from math import isfinite
 import jwt
 import json
 import os
@@ -13,6 +14,15 @@ import dns.resolver
 import numpy as np
 import math
 import random
+import uuid
+import pandas as pd
+import csv
+import secrets
+import requests
+
+
+
+
 
 
 # -------------------------
@@ -43,6 +53,11 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), default="user")
+    #  OTP + verification
+    is_verified = db.Column(db.Boolean, default=False)
+    otp_hash = db.Column(db.String(255), nullable=True)
+    otp_expires_at = db.Column(db.DateTime, nullable=True)
+    otp_sent_at = db.Column(db.DateTime, nullable=True)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -50,13 +65,6 @@ class User(db.Model):
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
 
-
-
-    def set_password(self, password):
-        self.password_hash = generate_password_hash(password)
-
-    def check_password(self, password):
-        return check_password_hash(self.password_hash, password)
 
 
 class Quiz(db.Model):
@@ -92,9 +100,56 @@ class QuizAttempt(db.Model):
     # Stores per-question review details (question text, selected vs correct)
     answers_detail = db.Column(db.JSON, nullable=True)
 
-    #__table_args__ = (
-        #db.UniqueConstraint("quiz_id", "user_id", name="unique_user_quiz"),
-    #)
+
+#OTP HELPER FUNCTION
+OTP_TTL_MINUTES = 10
+OTP_RESEND_COOLDOWN_SECONDS = 30
+
+def generate_otp_code():
+    # 6-digit numeric OTP
+    return f"{secrets.randbelow(10**6):06d}"
+
+def set_user_otp(user):
+    code = generate_otp_code()
+    user.otp_hash = generate_password_hash(code)
+    user.otp_expires_at = datetime.utcnow() + timedelta(minutes=OTP_TTL_MINUTES)
+    user.otp_sent_at = datetime.utcnow()
+    return code
+
+def verify_user_otp(user, code: str) -> bool:
+    if not user.otp_hash or not user.otp_expires_at:
+        return False
+    if datetime.utcnow() > user.otp_expires_at:
+        return False
+    return check_password_hash(user.otp_hash, code)
+#SEND OTP EMAIL
+import requests
+import os
+
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
+FROM_EMAIL = os.environ.get("FROM_EMAIL", "no-reply@yourdomain.com")
+
+def send_otp_email(to_email, code):
+    if not RESEND_API_KEY:
+        raise RuntimeError("RESEND_API_KEY is not set")
+
+    r = requests.post(
+        "https://api.resend.com/emails",
+        headers={
+            "Authorization": f"Bearer {RESEND_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "from": FROM_EMAIL,
+            "to": [to_email],
+            "subject": "Your Quiz OTP Code",
+            "html": f"<p>Your OTP code is: <b>{code}</b></p><p>It expires in {OTP_TTL_MINUTES} minutes.</p>",
+        },
+        timeout=10,
+    )
+    if r.status_code >= 400:
+        raise RuntimeError(f"Email send failed: {r.status_code} {r.text}")
+
 
 # -------------------------
 # Helpers: token generation + decorator
@@ -143,36 +198,29 @@ def email_domain_exists(email):
 @app.route("/register", methods=["POST"])
 def register():
     data = request.get_json() or {}
-    email = data.get("email", "").strip()
+    email = data.get("email", "").strip().lower()
     password = data.get("password", "").strip()
 
-    # 1. Required fields
     if not email or not password:
         return jsonify({"error": "email and password required"}), 400
 
-    # 2. Validate format
     email_regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
     if not re.match(email_regex, email):
         return jsonify({"error": "Invalid email format"}), 400
 
-    # 3. Check real email domain exists
-    if not email_domain_exists(email):
-        return jsonify({"error": "Email domain does not exist"}), 400
-
-    # 4. Email already taken?
     if User.query.filter_by(email=email).first():
         return jsonify({"error": "Email already exists"}), 400
 
-    # 5. Strong password validation
     password_regex = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$"
     if not re.match(password_regex, password):
-        return jsonify({
-            "error": "Password must be at least 8 characters, include uppercase, lowercase, number, and special character"
-        }), 400
+        return jsonify({"error": "Password must be at least 8 characters, include uppercase, lowercase, number, and special character"}), 400
 
-    # 6. Create user
-    user = User(email=email)
+    user = User(email=email, is_verified=False)
     user.set_password(password)
+
+    # ✅ set OTP
+    code = set_user_otp(user)
+
     db.session.add(user)
     try:
         db.session.commit()
@@ -180,22 +228,103 @@ def register():
         db.session.rollback()
         return jsonify({"error": f"Database error: {str(e)}"}), 500
 
+    # ✅ send email after commit (so user exists)
+    try:
+        send_otp_email(email, code)
+    except Exception as e:
+        # optional: you can delete the user if email fails
+        return jsonify({"error": f"Failed to send OTP email: {str(e)}"}), 500
+
     return jsonify({
-        "message": "Registration successful",
+        "message": "Registration successful. OTP sent to your email.",
         "user_id": user.id,
-        "email": user.email
+        "email": user.email,
+        "requires_verification": True
     }), 201
+@app.route("/verify-otp", methods=["POST"])
+def verify_otp():
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+    code = (data.get("otp") or "").strip()
+
+    if not email or not code:
+        return jsonify({"error": "email and otp required"}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    if user.is_verified:
+        return jsonify({"message": "Already verified"}), 200
+
+    if not verify_user_otp(user, code):
+        return jsonify({"error": "Invalid or expired OTP"}), 400
+
+    user.is_verified = True
+    user.otp_hash = None
+    user.otp_expires_at = None
+    user.otp_sent_at = None
+    db.session.commit()
+
+    token = generate_token(user.id, hours=12)
+    return jsonify({
+        "message": "Email verified successfully",
+        "user_id": user.id,
+        "email": user.email,
+        "token": token
+    }), 200
+
+@app.route("/resend-otp", methods=["POST"])
+def resend_otp():
+    data = request.get_json() or {}
+    email = (data.get("email") or "").strip().lower()
+
+    if not email:
+        return jsonify({"error": "email required"}), 400
+
+    user = User.query.filter_by(email=email).first()
+    if not user:
+        return jsonify({"error": "User not found"}), 404
+
+    if user.is_verified:
+        return jsonify({"message": "Already verified"}), 200
+
+    if user.otp_sent_at:
+        elapsed = (datetime.utcnow() - user.otp_sent_at).total_seconds()
+        if elapsed < OTP_RESEND_COOLDOWN_SECONDS:
+            return jsonify({"error": f"Please wait {int(OTP_RESEND_COOLDOWN_SECONDS - elapsed)} seconds before resending"}), 429
+
+    code = set_user_otp(user)
+    db.session.commit()
+
+    try:
+        send_otp_email(email, code)
+    except Exception as e:
+        return jsonify({"error": f"Failed to resend OTP: {str(e)}"}), 500
+
+    return jsonify({"message": "OTP resent"}), 200
+
 
 @app.route("/login", methods=["POST"])
 def login():
     data = request.get_json() or {}
-    email = data.get("email")
-    password = data.get("password")
+    email = (data.get("email") or "").strip().lower()
+    password = (data.get("password") or "").strip()
+
     if not email or not password:
         return jsonify({"error": "email and password required"}), 400
+
     user = User.query.filter_by(email=email).first()
     if not user or not user.check_password(password):
         return jsonify({"error": "Invalid credentials"}), 401
+
+    if not user.is_verified:
+        return jsonify({
+            "error": "Email not verified",
+            "requires_verification": True,
+            "email": user.email
+        }), 403
+
     token = generate_token(user.id, hours=12)
     return jsonify({"message": "Login successful", "user_id": user.id, "email": user.email, "token": token}), 200
 
@@ -587,52 +716,53 @@ def add_questions_bulk(quiz_id):
 # -------------------------
 # Module 3: Performance Predictor endpoints
 # -------------------------
-import uuid
-from math import isfinite
 
-def create_synthetic_quiz_for_attempt(quiz_title):
-    """Create a quiz used for synthetic attempts and return its id."""
-    q = Quiz(title=quiz_title, description="Synthetic quiz for testing Module 3")
-    db.session.add(q)
-    db.session.commit()
-    return q.id
+# Ensure folder exists for CSVs
+os.makedirs("ml_datasets", exist_ok=True)
 
 @app.route("/module3/generate_synthetic", methods=["POST"])
 @token_required
 def generate_synthetic():
     """
-    Generate synthetic QuizAttempt records for the current user for testing.
+    Generate synthetic QuizAttempt records in memory (DB-free) for ML.
     Body JSON (optional):
       {
         "n": 10,
         "base": 60,
         "trend": 1.5,
         "noise": 6,
-        "pattern": "linear"   # linear, quadratic, sinusoidal, plateau
+        "pattern": "linear",   # linear, quadratic, sinusoidal, plateau
+        "total_questions": 17,
+        "quiz_id": "SYN-xxxxxx"  # optional, if not provided a new one will be generated
       }
-    Returns created attempt summaries.
+    Returns JSON with all columns of QuizAttempt.
     """
     data = request.get_json() or {}
     n = int(data.get("n", 10))
     base = float(data.get("base", 60.0))
     trend = float(data.get("trend", 1.0))
     noise = float(data.get("noise", 5.0))
-    pattern = data.get("pattern", "linear")  # default linear
+    pattern = data.get("pattern", "linear")
+    total_q = int(data.get("total_questions", 20))
     current_user = request.current_user
+
+    # Use provided quiz_id or generate a new one
+    quiz_id_base = data.get("quiz_id")
+    if quiz_id_base is None:
+        quiz_id_base = f"SYN-{uuid.uuid4().hex[:6]}"
 
     created = []
     start_time = datetime.utcnow() - timedelta(days=n)
 
     for i in range(n):
-        # create a dedicated synthetic quiz for each attempt
-        quiz_title = f"Synthetic Quiz {current_user.id}-{uuid.uuid4().hex[:6]}-{i}"
-        quiz_id = create_synthetic_quiz_for_attempt(quiz_title)
+        # Unique attempt ID per quiz
+        quiz_id = f"{quiz_id_base}-{i}"
 
-        # generate percentage according to pattern
+        # Generate percentage according to pattern
         if pattern == "linear":
             pct = base + trend * i
         elif pattern == "quadratic":
-            curvature = data.get("curvature", 0.5)  # default curvature
+            curvature = data.get("curvature", 0.5)
             pct = base + trend * i + curvature * (i ** 2)
         elif pattern == "sinusoidal":
             amplitude = data.get("amplitude", 10.0)
@@ -643,208 +773,419 @@ def generate_synthetic():
             midpoint = n / 2
             pct = 100 / (1 + math.exp(-growth * (i - midpoint)))
         else:
-            pct = base + trend * i  # fallback linear
+            pct = base + trend * i
 
-        # add Gaussian noise
+        # Add Gaussian noise
         pct += np.random.normal(0, noise)
         pct = max(0.0, min(100.0, pct))  # clamp to [0,100]
-
-        total_q = 17
         score = int(round((pct / 100.0) * total_q))
 
-        attempt = QuizAttempt(
-            quiz_id=quiz_id,
-            user_id=current_user.id,
-            score=score,
-            total_questions=total_q,
-            percentage=float(pct),
-            timestamp=(start_time + timedelta(days=i))
-        )
-        db.session.add(attempt)
-        created.append({
+        attempt_data = {
+            "id": i + 1,
             "quiz_id": quiz_id,
+            "user_id": current_user.id,
             "score": score,
+            "total_questions": total_q,
             "percentage": round(pct, 2),
-            "timestamp": attempt.timestamp.isoformat()
-        })
+            "timestamp": (start_time + timedelta(days=i)).isoformat(),
+            "question_order": list(range(1, total_q + 1)),
+            "status": "completed"
+        }
+        created.append(attempt_data)
 
-    db.session.commit()
-    return jsonify({"message": f"Created {len(created)} synthetic attempts", "created": created}), 201
+    # Save CSV for ML, per user per quiz
+    csv_file = f"ml_datasets/user_{current_user.id}_quiz_{quiz_id_base}.csv"
+    df = pd.DataFrame(created)
+    df.to_csv(csv_file, index=False)
 
+    return jsonify({
+        "message": f"Generated {len(created)} synthetic attempts (not saved to DB)",
+        "dataset_file": csv_file,
+        "samples": len(created),
+        "created": created
+    }), 200
 
+# -------------------------------
+# Linear regression (training)
 
+# -------------------------------
+# Linear regression (training)
+# -------------------------------
 def fit_linear_regression(x, y):
-    """
-    Fit simple linear regression y = a*x + b.
-    x, y are 1D numpy arrays (floats). Returns dict with slope, intercept, r2.
-    """
     if len(x) < 2:
         return None
-    try:
-        a, b = np.polyfit(x, y, 1)
-        # compute R^2
-        y_pred = a * x + b
-        ss_res = np.sum((y - y_pred) ** 2)
-        ss_tot = np.sum((y - np.mean(y)) ** 2)
-        r2 = 1 - ss_res / ss_tot if ss_tot != 0 else 0.0
-        return {"slope": float(a), "intercept": float(b), "r2": float(r2)}
-    except Exception:
-        return None
+    a, b = np.polyfit(x, y, 1)
+    return {"slope": float(a), "intercept": float(b)}
 
+# -------------------------------
+# Regression metrics
+# -------------------------------
+def regression_metrics(y_true, y_pred):
+    y_true = np.array(y_true, dtype=float)
+    y_pred = np.array(y_pred, dtype=float)
+    mse = np.mean((y_true - y_pred) ** 2)
+    rmse = np.sqrt(mse)
+    mae = np.mean(np.abs(y_true - y_pred))
+    return {"mse": round(float(mse), 4), "rmse": round(float(rmse), 4), "mae": round(float(mae), 4)}
 
-def difficulty_from_prediction(predicted_pct, slope):
+# -------------------------------
+# Train/test split
+# -------------------------------
+def train_test_split_time_series(x, y, train_ratio=0.7):
+    split_idx = int(len(x) * train_ratio)
+    return x[:split_idx], y[:split_idx], x[split_idx:], y[split_idx:]
+
+def recommend_difficulty_from_percentage(pct):
     """
-    Map predicted percentage and trend to a recommended difficulty label.
-    Logic:
-      - If slope positive and predicted high -> recommend harder
-      - If slope negative and predicted low -> recommend easier
-      - Otherwise map by predicted_pct thresholds.
-    Returns label string.
+    Convert predicted percentage into quiz difficulty level
     """
-    if predicted_pct is None or not isfinite(predicted_pct):
-        return "Unknown"
+    if pct is None:
+        return {
+            "level": "Easy",
+            "reason": "Insufficient historical data"
+        }
 
-    if predicted_pct >= 85:
-        base = "Hard"
-    elif predicted_pct >= 65:
-        base = "Medium"
-    elif predicted_pct >= 45:
-        base = "Easy"
+    if pct >= 85:
+        return {
+            "level": "Hard",
+            "reason": "High predicted mastery"
+        }
+    elif pct >= 65:
+        return {
+            "level": "Medium",
+            "reason": "Good understanding, moderate challenge recommended"
+        }
+    elif pct >= 40:
+        return {
+            "level": "Easy",
+            "reason": "Basic understanding, additional practice advised"
+        }
     else:
-        base = "Very Easy"
+        return {
+            "level": "Very Easy",
+            "reason": "Low predicted performance, start with fundamentals"
+        }
 
-    # adjust based on trend
-    if slope is None:
-        return base
+# -------------------------------
+# Prediction endpoint (per quiz)
+# -------------------------------
+# ✅ Add these helper functions somewhere ABOVE /predict (once)
 
-    if slope > 0.75:
-        # improving quickly -> bump up difficulty one level where possible
-        if base == "Very Easy":
-            return "Easy"
-        if base == "Easy":
-            return "Medium"
-        if base == "Medium":
-            return "Hard"
-        return base
-    elif slope < -0.75:
-        # declining -> be more conservative
-        if base == "Hard":
-            return "Medium"
-        if base == "Medium":
-            return "Easy"
-        if base == "Easy":
-            return "Very Easy"
-        return base
+def confidence_level(attempt_count: int, percentages: np.ndarray):
+    """
+    Returns a confidence label/score based on number of attempts + variability.
+    """
+    if attempt_count < 2:
+        return {"label": "Low", "score": 0.2, "reason": "Need at least 2 attempts"}
 
-    return base
+    std = float(np.std(percentages)) if attempt_count >= 2 else 0.0
+
+    # base increases with attempts (caps at 0.85)
+    base = min(0.85, 0.35 + 0.10 * attempt_count)
+    # penalty increases with instability (caps at 0.5)
+    penalty = min(0.50, std / 30.0)
+
+    score = max(0.10, min(0.95, base - penalty))
+
+    if score >= 0.75:
+        label = "High"
+    elif score >= 0.45:
+        label = "Medium"
+    else:
+        label = "Low"
+
+    reason = f"{attempt_count} attempts, variability (std) ≈ {round(std, 2)}"
+    return {"label": label, "score": round(score, 2), "reason": reason}
 
 
-def trend_label(slope):
-    if slope is None:
-        return "insufficient data"
-    if slope > 0.5:
-        return "improving"
-    if slope < -0.5:
-        return "declining"
-    return "stable"
+def trend_insight(percentages: np.ndarray):
+    """
+    Simple 'what this means' insight based on last change.
+    """
+    if len(percentages) < 2:
+        return {"label": "Not enough data", "reason": "Need at least 2 attempts"}
 
+    last = float(percentages[-1])
+    prev = float(percentages[-2])
+    delta = last - prev
+
+    if delta >= 5:
+        return {"label": "Improving", "reason": f"Up by {round(delta, 2)}% from last attempt"}
+    elif delta <= -5:
+        return {"label": "Dropping", "reason": f"Down by {round(abs(delta), 2)}% from last attempt"}
+    else:
+        return {"label": "Stable", "reason": "Small change recently"}
+
+
+def calculate_streak_from_attempts(attempts):
+    """
+    Counts consecutive-day streak from submitted attempts.
+    - multiple attempts same day do not break streak
+    """
+    if not attempts:
+        return 0
+
+    attempts_sorted = sorted(attempts, key=lambda x: x.timestamp, reverse=True)
+    streak = 1
+    last_date = attempts_sorted[0].timestamp.date()
+
+    for att in attempts_sorted[1:]:
+        cur_date = att.timestamp.date()
+        day_diff = (last_date - cur_date).days
+
+        if day_diff == 0:
+            # same day attempt - ignore
+            continue
+        if day_diff == 1:
+            streak += 1
+            last_date = cur_date
+            continue
+
+        break
+
+    return streak
+
+
+# ✅ FULL UPDATED /predict (copy-paste to replace your current predict endpoint)
 
 @app.route("/predict", methods=["GET"])
 @token_required
 def predict_next_score():
-    """
-    GET /predict?user_id=<id>
-    Returns predicted next percentage, expected score, difficulty recommendation, trend, and model info.
-    """
-    uid = request.args.get("user_id", None)
-    if uid is None:
-        return jsonify({"error": "user_id query parameter required"}), 400
+    uid = request.args.get("user_id")
+    quiz_id = request.args.get("quiz_id")
+    goal = request.args.get("goal")  # optional, e.g. 80
+
+    if uid is None or quiz_id is None:
+        return jsonify({"error": "user_id and quiz_id query parameters required"}), 400
+
     try:
         uid = int(uid)
+        quiz_id = int(quiz_id)  # ✅ ensure integer
     except ValueError:
-        return jsonify({"error": "invalid user_id"}), 400
+        return jsonify({"error": "invalid user_id or quiz_id"}), 400
 
-    # authorization: token user must match requested user
+    # Authorization: user can only predict themselves
     if request.current_user.id != uid:
-        return jsonify({"error": "Unauthorized - token user mismatch"}), 401
+        return jsonify({"error": "Unauthorized"}), 401
 
-    # Get user's attempts
-    attempts = QuizAttempt.query.filter_by(
-        user_id=uid,
-        status="submitted"
-    ).order_by(QuizAttempt.timestamp.asc()).all()
-    if not attempts:
-        return jsonify({"error": "No attempts found for user; create synthetic data or take quizzes"}), 404
+    # Fetch quiz info for nicer UI
+    quiz = Quiz.query.get(quiz_id)
+    quiz_title = quiz.title if quiz else f"Quiz #{quiz_id}"
+    quiz_description = quiz.description if quiz else ""
 
-    # Prepare x, y
-    y_user = np.array([float(a.percentage) for a in attempts])
-    x_user = np.arange(1, len(y_user) + 1, dtype=float)
+    # Get submitted attempts for THIS quiz from DB
+    attempts = (
+        QuizAttempt.query
+        .filter_by(user_id=uid, quiz_id=quiz_id, status="submitted")
+        .order_by(QuizAttempt.timestamp.asc())
+        .all()
+    )
 
-    # Fit regression
-    model_user = fit_linear_regression(x_user, y_user)
-    history = [
-        {
-            "attempt_index": int(i + 1),
-            "percentage": float(round(float(p), 2)),
-            "timestamp": attempts[i].timestamp.isoformat()
-        } for i, p in enumerate(y_user)
-    ]
-
-    if model_user is None:
+    # Feature #9: attempt requirement progress
+    attempts_required = 2
+    if len(attempts) < attempts_required:
+        progress = round((len(attempts) / attempts_required) * 100, 0) if attempts_required else 0
         return jsonify({
-            "history": history,
-            "message": "Not enough data to fit a regression (need at least 2 attempts).",
-            "prediction": None
+            "message": "At least 2 quiz attempts are required for prediction",
+            "attempts_found": len(attempts),
+            "attempts_required": attempts_required,
+            "progress": progress,
+
+            "user_id": uid,
+            "quiz_id": quiz_id,
+            "quiz": {
+                "id": quiz_id,
+                "title": quiz_title,
+                "description": quiz_description
+            }
         }), 200
 
-    slope = model_user["slope"]
-    intercept = model_user["intercept"]
-    r2 = model_user.get("r2", 0.0)
+    # Build series from DB
+    y_all = np.array([float(a.percentage) for a in attempts], dtype=float)
+    x_all = np.arange(1, len(y_all) + 1, dtype=float)
+
+    # Summary stats (Feature #8)
+    best_pct = float(np.max(y_all))
+    avg_pct = float(np.mean(y_all))
+    last_pct = float(y_all[-1])
+
+    # Confidence + insight (Features #1, #2)
+    conf = confidence_level(len(y_all), y_all)
+    insight = trend_insight(y_all)
+
+    # Streak (Feature #5)
+    streak = calculate_streak_from_attempts(attempts)
+
+    # Split for metrics (only if >=3)
+    if len(x_all) < 3:
+        x_train, y_train = x_all, y_all
+        x_test, y_test = np.array([]), np.array([])
+    else:
+        x_train, y_train, x_test, y_test = train_test_split_time_series(
+            x_all, y_all, train_ratio=0.7
+        )
+
+    model = fit_linear_regression(x_train, y_train)
+    if model is None:
+        return jsonify({"error": "Model training failed"}), 500
+
+    a, b = model["slope"], model["intercept"]
+
+    # Metrics
+    y_train_pred = a * x_train + b
+    train_metrics = regression_metrics(y_train, y_train_pred)
+
+    if len(x_test) > 0:
+        y_test_pred = a * x_test + b
+        test_metrics = regression_metrics(y_test, y_test_pred)
+    else:
+        test_metrics = None
 
     # Predict next attempt
-    next_x = float(len(x_user) + 1)
-    predicted_pct = slope * next_x + intercept
-    predicted_pct = float(max(0.0, min(100.0, predicted_pct)))  # clamp
+    next_x = float(len(x_all) + 1)
+    predicted_pct = float(a * next_x + b)
+    predicted_pct = max(0.0, min(100.0, predicted_pct))
 
-    # Expected score based on last quiz's total_questions
-    total_questions = attempts[-1].total_questions if attempts else 10  # fallback 10
-    predicted_score = int(round((predicted_pct / 100.0) * total_questions))
+    total_questions = int(attempts[-1].total_questions or 0)
+    predicted_score = (
+        int(round((predicted_pct / 100.0) * total_questions))
+        if total_questions else None
+    )
 
-    # Optional: nudge for very new users using all-user slope
-    if len(y_user) < 3:
-        all_attempts = QuizAttempt.query.order_by(QuizAttempt.timestamp.asc()).all()
-        if len(all_attempts) > 1:
-            y_all = np.array([a.percentage for a in all_attempts])
-            x_all = np.arange(1, len(y_all) + 1, dtype=float)
-            model_all = fit_linear_regression(x_all, y_all)
-            if model_all is not None:
-                predicted_pct += 0.1 * (model_all['slope'] - slope) * next_x
-                predicted_pct = float(max(0.0, min(100.0, predicted_pct)))
-                predicted_score = int(round((predicted_pct / 100.0) * total_questions))
+    # Difficulty recommendation (already in your code)
+    diff = recommend_difficulty_from_percentage(predicted_pct)
 
-    rec_difficulty = difficulty_from_prediction(predicted_pct, slope)
-    trend = trend_label(slope)
+    # History for chart (frontend)
+    history = [
+        {
+            "attempt_index": i + 1,
+            "percentage": float(att.percentage),
+            "timestamp": att.timestamp.isoformat()
+        }
+        for i, att in enumerate(attempts)
+    ]
+
+    # Feature #3: goal estimation (optional)
+    goal_pct = None
+    attempts_to_goal = None
+    if goal is not None:
+        try:
+            goal_pct = float(goal)
+            goal_pct = max(0.0, min(100.0, goal_pct))
+
+            # if slope positive, estimate attempts needed
+            if a > 0:
+                x_goal = (goal_pct - b) / a  # solve a*x + b >= goal
+                attempts_to_goal = max(0, math.ceil(x_goal - len(x_all)))
+            else:
+                attempts_to_goal = None
+        except ValueError:
+            goal_pct = None
+            attempts_to_goal = None
+    # Feature #3: goal estimation (improved)
+    goal_pct = None
+    attempts_to_goal = None
+    goal_note = None
+
+    if goal is not None:
+        try:
+            goal_pct = float(goal)
+            goal_pct = max(0.0, min(100.0, goal_pct))
+
+            # if already meeting goal, need 0 attempts
+            if predicted_pct >= goal_pct:
+                attempts_to_goal = 0
+                goal_note = "You are already on/above your goal based on the prediction."
+            else:
+                # if slope positive, estimate attempts needed
+                if a > 0:
+                    x_goal = (goal_pct - b) / a  # solve a*x + b >= goal
+                    attempts_to_goal = max(0, math.ceil(x_goal - len(x_all)))
+                    goal_note = "Estimated using your current improvement trend."
+                else:
+                    attempts_to_goal = None
+                    goal_note = "Your recent trend is not increasing yet. More practice will improve the estimate."
+        except ValueError:
+            goal_pct = None
+            attempts_to_goal = None
+            goal_note = "Invalid goal value."
+
+    # Feature #4: next action hint for frontend (button routing)
+    next_action = {
+        "type": "start_quiz",
+        "quiz_id": quiz_id,
+        "difficulty": diff["level"],
+        "label": f"Start a {diff['level']} quiz now"
+    }
 
     return jsonify({
         "user_id": uid,
+        "quiz_id": quiz_id,
+
+        "quiz": {
+            "id": quiz_id,
+            "title": quiz_title,
+            "description": quiz_description
+        },
+
+        "history": history,
+
+        "summary": {
+            "attempts": len(y_all),
+            "best_percentage": round(best_pct, 2),
+            "average_percentage": round(avg_pct, 2),
+            "last_percentage": round(last_pct, 2)
+        },
+
+        "confidence": conf,      # Feature #1
+        "insight": insight,      # Feature #2
+        "streak": streak,        # Feature #5
+
+        "goal": {
+    "target_percentage": round(goal_pct, 2) if goal_pct is not None else None,
+    "estimated_attempts_needed": attempts_to_goal,
+    "note": goal_note
+        },
+
+
+        "dataset": {
+            "total_samples": len(y_all),
+            "train_samples": len(y_train),
+            "test_samples": len(y_test)
+        },
+
+        "training": {
+            "model": {
+                "slope": round(float(a), 4),
+                "intercept": round(float(b), 4)
+            },
+            "metrics": train_metrics
+        },
+
+        "testing": {
+            "metrics": test_metrics
+        },
+
         "prediction": {
             "next_attempt_index": int(next_x),
             "predicted_percentage": round(predicted_pct, 2),
             "predicted_score": predicted_score,
             "total_questions": total_questions
         },
+
         "recommendation": {
-            "difficulty": rec_difficulty,
-            "reason": f"based on predicted {round(predicted_pct,2)}% and slope {round(slope,3)}"
+            "next_quiz_difficulty": diff["level"],
+            "reason": diff["reason"]
         },
-        "trend": trend,
-        "model": {
-            "slope": round(slope, 4),
-            "intercept": round(intercept, 4),
-            "r2": round(r2, 4)
-        },
-        "history": history
+
+        "next_action": next_action,  # Feature #4
+
+        "attempt_gate": {            # Feature #9 (useful even after unlocking)
+            "attempts_found": len(attempts),
+            "attempts_required": attempts_required
+        }
     }), 200
+
 
 
 # ===========================================
@@ -1116,7 +1457,8 @@ def weekly_leaderboard():
 
 @app.route("/analytics", methods=["GET"])
 @token_required
-def analytics(user):
+def analytics():
+    user = request.current_user
     attempts = QuizAttempt.query.filter_by(user_id=user.id).all()
     scores = [a.score for a in attempts]
 
