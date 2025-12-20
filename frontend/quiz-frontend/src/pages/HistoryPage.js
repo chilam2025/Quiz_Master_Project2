@@ -64,14 +64,14 @@ export default function HistoryPage() {
         const grouped = {};
         const titles = {};
 
-        data.forEach(attempt => {
+        data.forEach((attempt) => {
           const quizId = attempt.quiz_id;
           if (!grouped[quizId]) {
             grouped[quizId] = [];
           }
           grouped[quizId].push(attempt);
 
-          // Store quiz title if available
+          // Store quiz title from attempt payload when present
           if (attempt.quiz_title && !titles[quizId]) {
             titles[quizId] = attempt.quiz_title;
           }
@@ -79,6 +79,21 @@ export default function HistoryPage() {
 
         setQuizAttempts(grouped);
         setQuizTitles(titles);
+
+         // Fetch quiz metadata to backfill missing titles (for legacy attempts)
+        try {
+          const quizzesRes = await fetch(`${API_URL}/quizzes`);
+          const quizzes = await quizzesRes.json();
+          setQuizTitles((current) => {
+            const merged = { ...current };
+            quizzes.forEach((quiz) => {
+              merged[quiz.id] = quiz.title;
+            });
+            return merged;
+          });
+        } catch (quizErr) {
+          console.warn("Could not fetch quiz titles:", quizErr);
+        }
 
         // Calculate overall average
         if (data.length > 0) {
