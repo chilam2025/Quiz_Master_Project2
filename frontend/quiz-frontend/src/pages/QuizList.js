@@ -115,6 +115,15 @@ export default function QuizList() {
             >
               See Prediction
             </button>
+              <button
+              onClick={() => {
+                setMenuOpen(false);
+                navigate("/insights");
+              }}
+              style={menuItemStyle}
+            >
+              Insights Dashboard
+            </button>
             <button
               onClick={() => {
                 setMenuOpen(false);
