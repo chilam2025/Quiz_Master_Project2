@@ -124,8 +124,13 @@ export default function AuthPage() {
   }
 
   useEffect(() => {
-    let canceled = false;
-    const scriptSrc = "https://accounts.google.com/gsi/client";
+    // Google script must be loaded from index.html
+    if (!window.google) {
+      setError(
+        "Google script not loaded. Add <script src='https://accounts.google.com/gsi/client' async defer></script> in public/index.html"
+      );
+      return;
+    }
 
     if (!GOOGLE_CLIENT_ID || GOOGLE_CLIENT_ID.includes("PASTE_")) {
       setError(
@@ -134,63 +139,28 @@ export default function AuthPage() {
       return;
     }
 
-    const renderGoogleButton = () => {
-      if (canceled || !window.google) return;
-      resetMessages();
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: handleGoogleCredentialResponse,
+    // init google identity
+    window.google.accounts.id.initialize({
+      client_id: GOOGLE_CLIENT_ID,
+      callback: handleGoogleCredentialResponse,
+    });
+
+    // render google button
+    const btnDiv = document.getElementById("googleBtn");
+    if (btnDiv) {
+      btnDiv.innerHTML = "";
+      window.google.accounts.id.renderButton(btnDiv, {
+        type: "standard",
+        theme: "outline",
+        size: "large",
+        text: "continue_with",
+        shape: "pill",
+        width: "320",
       });
-
-      const btnDiv = document.getElementById("googleBtn");
-      if (btnDiv) {
-        btnDiv.innerHTML = "";
-        window.google.accounts.id.renderButton(btnDiv, {
-          type: "standard",
-          theme: "outline",
-          size: "large",
-          text: "continue_with",
-          shape: "pill",
-          width: "320",
-        });
-      }
-    };
-
-    let scriptEl = document.querySelector(`script[src="${scriptSrc}"]`);
-    const handleLoad = () => renderGoogleButton();
-    const handleError = () => {
-      if (!canceled) {
-        setError("Google script failed to load. Check your network or ad blocker.");
-      }
-    };
-
-    if (window.google) {
-      renderGoogleButton();
-    } else {
-      if (!scriptEl) {
-        scriptEl = document.createElement("script");
-        scriptEl.src = scriptSrc;
-        scriptEl.async = true;
-        scriptEl.defer = true;
-        document.head.appendChild(scriptEl);
-      }
-
-      scriptEl.addEventListener("load", handleLoad);
-      scriptEl.addEventListener("error", handleError);
     }
 
-    const timeoutId = setTimeout(() => {
-      if (!canceled && !window.google) {
-        setError("Google script not loaded. Check your network or ad blocker.");
-      }
-    }, 5000);
-
-    return () => {
-      canceled = true;
-      clearTimeout(timeoutId);
-      scriptEl?.removeEventListener("load", handleLoad);
-      scriptEl?.removeEventListener("error", handleError);
-    };
+    // optional: show "one tap"
+    // window.google.accounts.id.prompt();
   }, []);
 
   return (
