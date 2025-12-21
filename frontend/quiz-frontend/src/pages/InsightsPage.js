@@ -3,16 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import API_URL from "../services/api";
 
-// ✅ Small hook to detect phone screens
-function useIsMobile(breakpoint = 640) {
+function useIsMobile(breakpoint = 720) {
   const [isMobile, setIsMobile] = useState(
     typeof window !== "undefined" ? window.innerWidth < breakpoint : false
   );
 
   useEffect(() => {
-    function onResize() {
-      setIsMobile(window.innerWidth < breakpoint);
-    }
+    const onResize = () => setIsMobile(window.innerWidth < breakpoint);
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, [breakpoint]);
@@ -20,32 +17,191 @@ function useIsMobile(breakpoint = 640) {
   return isMobile;
 }
 
-const pageStyle = {
-  minHeight: "100vh",
-  background: "linear-gradient(135deg, #e2f2ff 0%, #cde6ff 50%, #e8f4ff 100%)",
-  padding: "24px 16px",
-  fontFamily: "'Poppins', sans-serif",
-  color: "#0f2b46",
-};
-
-const cardStyle = {
-  background: "rgba(255,255,255,0.95)",
-  borderRadius: "14px",
-  padding: "20px",
-  boxShadow: "0 10px 24px rgba(64,132,207,0.15)",
-  border: "1px solid rgba(128,178,232,0.35)",
-};
-
-const buttonStyle = {
-  padding: "12px 18px",
-  fontWeight: 600,
-  borderRadius: "10px",
-  border: "none",
-  background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
-  color: "white",
-  cursor: "pointer",
-  boxShadow: "0 10px 25px rgba(64,132,207,0.25)",
-  width: "100%",
+const styles = {
+  page: {
+    minHeight: "100vh",
+    background: "linear-gradient(135deg, #e2f2ff 0%, #cde6ff 50%, #e8f4ff 100%)",
+    padding: "22px 14px",
+    fontFamily: "'Poppins', sans-serif",
+    color: "#0f2b46",
+  },
+  wrap: {
+    maxWidth: "1050px",
+    margin: "0 auto",
+  },
+  header: {
+    textAlign: "center",
+    marginBottom: "18px",
+    padding: "0 6px",
+  },
+  title: (isMobile) => ({
+    color: "#1f6fb2",
+    margin: "0 0 6px 0",
+    fontSize: isMobile ? "22px" : "30px",
+    lineHeight: 1.2,
+    fontWeight: 800,
+    letterSpacing: "-0.2px",
+  }),
+  sub: (isMobile) => ({
+    color: "#2f557a",
+    margin: 0,
+    fontSize: isMobile ? "13px" : "15px",
+    lineHeight: 1.45,
+    maxWidth: "780px",
+    marginInline: "auto",
+  }),
+  // ✅ NEW: notice banner
+  notice: (isMobile) => ({
+    marginTop: "10px",
+    padding: isMobile ? "10px 12px" : "10px 16px",
+    borderRadius: "10px",
+    background: "rgba(87,165,255,0.12)",
+    color: "#1f6fb2",
+    fontSize: isMobile ? "12.5px" : "13.5px",
+    fontWeight: 600,
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    maxWidth: "720px",
+    marginInline: "auto",
+  }),
+  week: {
+    color: "#2f557a",
+    marginTop: "8px",
+    fontSize: "12.5px",
+    opacity: 0.95,
+  },
+  card: {
+    background: "rgba(255,255,255,0.95)",
+    borderRadius: "16px",
+    padding: "18px",
+    boxShadow: "0 14px 32px rgba(64,132,207,0.14)",
+    border: "1px solid rgba(128,178,232,0.35)",
+    overflow: "hidden",
+  },
+  heroCard: {
+    background:
+      "linear-gradient(135deg, rgba(87,165,255,0.12) 0%, rgba(122,199,255,0.10) 100%)",
+  },
+  topBar: (isMobile) => ({
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: isMobile ? "stretch" : "center",
+    gap: "12px",
+    flexDirection: isMobile ? "column" : "row",
+    marginBottom: "12px",
+  }),
+  topBarLeftTitle: {
+    margin: 0,
+    color: "#1f6fb2",
+    fontWeight: 800,
+    fontSize: "18px",
+  },
+  topBarLeftSub: {
+    margin: "4px 0 0 0",
+    color: "#2f557a",
+    fontSize: "13px",
+  },
+  actions: (isMobile) => ({
+    display: "grid",
+    gap: "10px",
+    gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
+    width: isMobile ? "100%" : "auto",
+  }),
+  btn: {
+    padding: "12px 16px",
+    fontWeight: 700,
+    borderRadius: "12px",
+    border: "none",
+    background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
+    color: "white",
+    cursor: "pointer",
+    boxShadow: "0 10px 22px rgba(64,132,207,0.22)",
+    width: "100%",
+    transition: "transform 0.15s ease",
+  },
+  btnAlt: {
+    background: "linear-gradient(120deg, #6cb5ff, #8ad5ff)",
+  },
+  topThreeGrid: (isMobile) => ({
+    display: "grid",
+    gridTemplateColumns: isMobile
+      ? "1fr"
+      : "repeat(auto-fit, minmax(240px, 1fr))",
+    gap: "12px",
+    marginBottom: "14px",
+  }),
+  miniCard: {
+    background: "rgba(255,255,255,0.92)",
+    borderRadius: "14px",
+    padding: "14px",
+    border: "1px solid rgba(128,178,232,0.35)",
+    boxShadow: "0 10px 22px rgba(64,132,207,0.10)",
+  },
+  email: {
+    fontWeight: 700,
+    color: "#123a5c",
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
+  },
+  badge: { fontSize: "22px" },
+  miniRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    marginTop: "10px",
+    color: "#2f557a",
+    fontSize: "13px",
+  },
+  row: (isMobile) => ({
+    display: "grid",
+    gap: "10px",
+    padding: "12px 14px",
+    borderRadius: "14px",
+    background: "rgba(255,255,255,0.92)",
+    border: "1px solid rgba(128,178,232,0.35)",
+    alignItems: "center",
+    gridTemplateColumns: isMobile ? "1fr" : "68px 1fr 160px 140px",
+  }),
+  rank: (isMobile) => ({
+    display: "flex",
+    alignItems: "center",
+    justifyContent: isMobile ? "space-between" : "flex-start",
+    gap: "8px",
+    fontWeight: 800,
+    color: "#1f6fb2",
+  }),
+  score: {
+    fontWeight: 800,
+    color: "#1f6fb2",
+  },
+  time: (isMobile) => ({
+    textAlign: isMobile ? "left" : "right",
+    color: "#2f557a",
+    fontSize: "13.5px",
+  }),
+  empty: {
+    textAlign: "center",
+    color: "#2f557a",
+    padding: "22px 10px",
+    fontSize: "14px",
+  },
+  error: {
+    textAlign: "center",
+    color: "#d94b4b",
+    marginBottom: "12px",
+    fontWeight: 600,
+  },
+  spinnerWrap: {
+    textAlign: "center",
+    padding: "60px 10px",
+  },
+  spinnerText: {
+    fontSize: "18px",
+    color: "#1f6fb2",
+    marginBottom: "12px",
+    fontWeight: 700,
+  },
 };
 
 const badgeIcon = {
@@ -71,8 +227,7 @@ export default function InsightsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const navigate = useNavigate();
-
-  const isMobile = useIsMobile(720); // ✅ tweak breakpoint if you want
+  const isMobile = useIsMobile(720);
 
   const user = JSON.parse(localStorage.getItem("user"));
   const token = user?.token;
@@ -92,9 +247,7 @@ export default function InsightsPage() {
           headers: { Authorization: `Bearer ${token}` },
         });
 
-        if (!response.ok) {
-          throw new Error("Unable to load leaderboard");
-        }
+        if (!response.ok) throw new Error("Unable to load leaderboard");
 
         const data = await response.json();
         setLeaders(data.leaders || []);
@@ -111,92 +264,35 @@ export default function InsightsPage() {
 
   const topThree = useMemo(() => leaders.slice(0, 3), [leaders]);
 
-  // ✅ Responsive style blocks
-  const headerWrapStyle = {
-    textAlign: "center",
-    marginBottom: "24px",
-    padding: isMobile ? "0 4px" : 0,
-  };
-
-  const titleStyle = {
-    color: "#1f6fb2",
-    marginBottom: "6px",
-    fontSize: isMobile ? "22px" : "30px",
-    lineHeight: 1.2,
-  };
-
-  const subtitleStyle = {
-    color: "#2f557a",
-    margin: 0,
-    fontSize: isMobile ? "13px" : "15px",
-    lineHeight: 1.45,
-  };
-
-  const topBarStyle = {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: isMobile ? "stretch" : "center",
-    marginBottom: "12px",
-    gap: "12px",
-    flexDirection: isMobile ? "column" : "row",
-  };
-
-  const actionsStyle = {
-    display: "grid",
-    gap: "10px",
-    gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
-    width: isMobile ? "100%" : "auto",
-  };
-
-  const topThreeGridStyle = {
-    display: "grid",
-    gridTemplateColumns: isMobile ? "1fr" : "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: "12px",
-    marginBottom: "14px",
-  };
-
-  const leaderRowStyle = {
-    display: "grid",
-    gap: "10px",
-    background: "rgba(255,255,255,0.9)",
-    padding: "12px 14px",
-    borderRadius: "12px",
-    border: "1px solid rgba(128,178,232,0.35)",
-    alignItems: "center",
-    gridTemplateColumns: isMobile ? "1fr" : "60px 1fr 140px 120px",
-  };
-
-  const emailStyle = {
-    color: "#0f2b46",
-    fontWeight: 600,
-    overflowWrap: "anywhere",
-    wordBreak: "break-word",
-  };
-
   return (
-    <div style={pageStyle}>
-      <div style={{ maxWidth: "1100px", margin: "0 auto" }}>
-        <header style={headerWrapStyle}>
-          <h1 style={titleStyle}>Weekly Insights Leaderboard</h1>
-
-          <p style={subtitleStyle}>
-            Top performers ranked by average quiz scores. Ties are broken by the
-            fastest completion time.
+    <div style={styles.page}>
+      <div style={styles.wrap}>
+        <header style={styles.header}>
+          <h1 style={styles.title(isMobile)}>Weekly Leaderboard</h1>
+          <p style={styles.sub(isMobile)}>
+            Top 10 students ranked by performance this week.
           </p>
 
+          {/* ✅ NEW banner message */}
+          <div style={styles.notice(isMobile)}>
+            <span>🔔</span>
+            <span>
+              Attempt at least <strong>3 quizzes</strong> (including{" "}
+              <strong>Medium or Hard</strong>) to appear on the leaderboard.
+            </span>
+          </div>
+
           {weekRange && (
-            <div style={{ color: "#2f557a", marginTop: "8px", fontSize: "13px" }}>
+            <div style={styles.week}>
               {new Date(weekRange.start).toLocaleDateString()} —{" "}
-              {new Date(weekRange.end).toLocaleDateString()} (resets weekly)
+              {new Date(weekRange.end).toLocaleDateString()}
             </div>
           )}
         </header>
 
         {loading ? (
-          <div style={{ textAlign: "center", padding: "60px 10px" }}>
-            <div style={{ fontSize: "18px", color: "#1f6fb2", marginBottom: "12px" }}>
-              Building the latest leaderboard...
-            </div>
+          <div style={styles.spinnerWrap}>
+            <div style={styles.spinnerText}>Loading leaderboard...</div>
             <div
               style={{
                 width: "56px",
@@ -209,183 +305,136 @@ export default function InsightsPage() {
               }}
             />
             <style>{`
-              @keyframes spin {
-                0% { transform: rotate(0deg); }
-                100% { transform: rotate(360deg); }
-              }
+              @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
             `}</style>
           </div>
         ) : error ? (
-          <div style={{ ...cardStyle, textAlign: "center" }}>
-            <p style={{ color: "#d94b4b", marginBottom: "12px" }}>{error}</p>
-            <button onClick={() => window.location.reload()} style={buttonStyle}>
+          <div style={styles.card}>
+            <div style={styles.error}>{error}</div>
+            <button onClick={() => window.location.reload()} style={styles.btn}>
               Retry
             </button>
           </div>
         ) : (
-          <div style={{ display: "grid", gap: "16px" }}>
-            <motion.div
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35 }}
-              style={{
-                ...cardStyle,
-                background:
-                  "linear-gradient(135deg, rgba(87,165,255,0.1) 0%, rgba(122,199,255,0.1) 100%)",
-              }}
-            >
-              <div style={topBarStyle}>
-                <div>
-                  <h3 style={{ margin: 0, color: "#1f6fb2" }}>Top performers</h3>
-                  <p style={{ margin: 0, color: "#2f557a", fontSize: "13px" }}>
-                    Weekly top 10 by average score
-                  </p>
-                </div>
-
-                <div style={actionsStyle}>
-                  <button style={buttonStyle} onClick={() => navigate("/quizzes")}>
-                    Start a Quiz
-                  </button>
-                  <button
-                    style={{
-                      ...buttonStyle,
-                      background: "linear-gradient(120deg, #6cb5ff, #8ad5ff)",
-                    }}
-                    onClick={() => window.location.reload()}
-                  >
-                    Refresh
-                  </button>
-                </div>
+          <motion.div
+            initial={{ opacity: 0, y: -10 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.35 }}
+            style={{ ...styles.card, ...styles.heroCard }}
+          >
+            <div style={styles.topBar(isMobile)}>
+              <div>
+                <h3 style={styles.topBarLeftTitle}>Top Performers</h3>
+                <p style={styles.topBarLeftSub}>This week’s top 10 results</p>
               </div>
 
-              {leaders.length === 0 ? (
-                <div style={{ textAlign: "center", color: "#2f557a", padding: "20px" }}>
-                  No submissions yet this week. Complete a quiz to claim the top spot!
-                </div>
-              ) : (
-                <>
-                  {topThree.length > 0 && (
-                    <div style={topThreeGridStyle}>
-                      {topThree.map((leader) => (
-                        <div
-                          key={leader.user_id}
-                          style={{
-                            background: "rgba(255,255,255,0.9)",
-                            borderRadius: "12px",
-                            padding: "14px",
-                            border: "1px solid rgba(128,178,232,0.35)",
-                            boxShadow: "0 8px 18px rgba(64,132,207,0.12)",
-                          }}
-                        >
-                          <div
-                            style={{
-                              display: "flex",
-                              alignItems: "center",
-                              gap: "10px",
-                              marginBottom: "8px",
-                            }}
-                          >
-                            <span style={{ fontSize: "22px" }}>
-                              {badgeIcon[leader.badge]}
-                            </span>
-                            <div style={{ fontWeight: 700, color: "#1f6fb2", ...emailStyle }}>
-                              {leader.email}
-                            </div>
-                          </div>
+              <div style={styles.actions(isMobile)}>
+                <button style={styles.btn} onClick={() => navigate("/quizzes")}>
+                  Start a Quiz
+                </button>
+                <button
+                  style={{ ...styles.btn, ...styles.btnAlt }}
+                  onClick={() => window.location.reload()}
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
 
-                          <div
-                            style={{
-                              display: "flex",
-                              justifyContent: "space-between",
-                              color: "#2f557a",
-                              fontSize: "13px",
-                              gap: "12px",
-                            }}
-                          >
-                            <div>
-                              <div style={{ fontWeight: 700 }}>{leader.average_percentage}%</div>
-                              <div>Avg score</div>
-                            </div>
-                            <div style={{ textAlign: "right" }}>
-                              <div style={{ fontWeight: 700 }}>
-                                {formatDuration(leader.average_duration_seconds)}
-                              </div>
-                              <div>Avg time</div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-                    {leaders.map((leader) => (
-                      <div
-                        key={`${leader.user_id}-${leader.rank}`}
-                        style={leaderRowStyle}
-                      >
-                        {/* Desktop rank column OR Mobile header row */}
+            {leaders.length === 0 ? (
+              <div style={styles.empty}>
+                No eligible students yet. Attempt more quizzes to appear here.
+              </div>
+            ) : (
+              <>
+                {topThree.length > 0 && (
+                  <div style={styles.topThreeGrid(isMobile)}>
+                    {topThree.map((leader) => (
+                      <div key={leader.user_id} style={styles.miniCard}>
                         <div
                           style={{
                             display: "flex",
+                            gap: "10px",
                             alignItems: "center",
-                            gap: "6px",
-                            fontWeight: 700,
-                            color: "#1f6fb2",
-                            justifyContent: isMobile ? "space-between" : "flex-start",
                           }}
                         >
-                          <span>#{leader.rank}</span>
-                          {leader.badge && <span>{badgeIcon[leader.badge]}</span>}
-                          {isMobile && (
-                            <span style={{ color: "#1f6fb2", fontWeight: 800 }}>
-                              {leader.average_percentage}% avg
-                            </span>
-                          )}
+                          <span style={styles.badge}>
+                            {badgeIcon[leader.badge]}
+                          </span>
+                          <div style={styles.email}>{leader.email}</div>
                         </div>
 
-                        {/* Email */}
-                        <div style={emailStyle}>{leader.email}</div>
-
-                        {/* Desktop score column */}
-                        {!isMobile && (
-                          <div style={{ color: "#1f6fb2", fontWeight: 700 }}>
-                            {leader.average_percentage}% avg
+                        <div style={styles.miniRow}>
+                          <div>
+                            <div style={styles.score}>
+                              {(leader.weighted_score ??
+                                leader.average_percentage) ?? "—"}
+                              %
+                            </div>
+                            <div>Score</div>
                           </div>
-                        )}
-
-                        {/* Time */}
-                        <div
-                          style={{
-                            color: "#2f557a",
-                            textAlign: isMobile ? "left" : "right",
-                            fontSize: isMobile ? "13px" : "14px",
-                          }}
-                        >
-                          ⏱ {formatDuration(leader.average_duration_seconds)}
+                          <div style={{ textAlign: "right" }}>
+                            <div style={{ fontWeight: 800 }}>
+                              {leader.avg_time_ratio != null
+                                ? `${leader.avg_time_ratio}x`
+                                : formatDuration(
+                                    leader.average_duration_seconds
+                                  )}
+                            </div>
+                            <div>Speed</div>
+                          </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                </>
-              )}
-            </motion.div>
+                )}
 
-            <motion.div
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.35, delay: 0.05 }}
-              style={cardStyle}
-            >
-              <h3 style={{ marginTop: 0, color: "#1f6fb2" }}>How it works</h3>
-              <ul style={{ color: "#2f557a", paddingLeft: "20px", lineHeight: 1.6 }}>
-                <li>Leaderboard resets every Monday based on the latest quiz attempts.</li>
-                <li>Ranking uses average percentage across all quizzes taken this week.</li>
-                <li>Ties are broken by the fastest average completion time.</li>
-                <li>Top three performers earn a weekly badge.</li>
-              </ul>
-            </motion.div>
-          </div>
+                <div
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: "10px",
+                  }}
+                >
+                  {leaders.map((leader) => (
+                    <div
+                      key={`${leader.user_id}-${leader.rank}`}
+                      style={styles.row(isMobile)}
+                    >
+                      <div style={styles.rank(isMobile)}>
+                        <span>#{leader.rank}</span>
+                        {leader.badge && <span>{badgeIcon[leader.badge]}</span>}
+                        {isMobile && (
+                          <span style={styles.score}>
+                            {(leader.weighted_score ??
+                              leader.average_percentage) ?? "—"}
+                            %
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={styles.email}>{leader.email}</div>
+
+                      {!isMobile && (
+                        <div style={styles.score}>
+                          {(leader.weighted_score ??
+                            leader.average_percentage) ?? "—"}
+                          % avg
+                        </div>
+                      )}
+
+                      <div style={styles.time(isMobile)}>
+                        ⏱{" "}
+                        {leader.avg_time_ratio != null
+                          ? `${leader.avg_time_ratio}x expected`
+                          : formatDuration(leader.average_duration_seconds)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </motion.div>
         )}
       </div>
     </div>
