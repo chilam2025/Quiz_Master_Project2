@@ -10,8 +10,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { motion } from "framer-motion";
-
-const API_URL = "http://127.0.0.1:5000";
+import API_URL from "../services/api";
 
 const containerStyle = {
   padding: "20px",
@@ -164,8 +163,9 @@ export default function Prediction() {
 
   async function loadQuizzes() {
     try {
-      const res = await fetch(`${API_URL}/quizzes`, { method: "GET" });
-      const data = await res.json();
+         const res = await fetch(`${API_URL}/quizzes`, {method: "GET",
+          headers: user?.token ? { Authorization: `Bearer ${user.token}` } : {},});
+         const data = await res.json();
       setQuizzes(Array.isArray(data) ? data : []);
       if (Array.isArray(data) && data.length > 0) setSelectedQuizId(String(data[0].id));
     } catch (err) {
