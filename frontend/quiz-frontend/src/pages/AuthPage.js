@@ -181,14 +181,6 @@ export default function AuthPage() {
           <div id="googleBtn" />
         </div>
 
-        <button
-          style={{ ...buttonStyle, opacity: busy ? 0.75 : 1 }}
-          disabled={busy}
-          onClick={() => window.google?.accounts?.id?.prompt?.()}
-        >
-          {busy ? "Please wait..." : "Try Google One Tap"}
-        </button>
-
         <p style={{ fontSize: "12px", color: "#3a5c7a", marginTop: "14px" }}>
           By continuing, you agree to sign in using your Google account.
         </p>
