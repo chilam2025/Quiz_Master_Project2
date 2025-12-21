@@ -26,6 +26,7 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
 
+
 ENV_PATH = Path(__file__).with_name(".env")
 load_dotenv(ENV_PATH)
 load_dotenv(Path(__file__).with_name(".env"))  # loads backend/.env if server.py is in backend/
@@ -107,8 +108,7 @@ class QuizAttempt(db.Model):
     status = db.Column(db.String(20), default="in_progress")
     # Stores per-question review details (selected vs correct for each)
     answers_detail = db.Column(db.JSON, nullable=True)
-    difficulty = db.Column(db.String(50), nullable=False, default="Easy")
-
+    difficulty=db.Column(db.String(50),nullable=True)
 # -------------------------
 # Auth endpoints
 # -------------------------
@@ -359,12 +359,14 @@ def start_quiz(quiz_id):
             status="in_progress",
             started_at=datetime.utcnow(),
             duration_seconds=None        )
+        attempt.difficulty=difficulty
         db.session.add(attempt)
         db.session.flush()  # get ID without commit
 
     else:
         attempt.started_at = datetime.utcnow()
         attempt.duration_seconds = None
+        attempt.difficulty=difficulty
 
     questions = Question.query.filter_by(
         quiz_id=quiz_id,
@@ -494,6 +496,7 @@ def get_user_attempts(user_id):
             "timestamp": a.timestamp.isoformat(),
             "duration_seconds": a.duration_seconds,
             "answers_detail": a.answers_detail,
+            "difficulty": a.difficulty,
         })
     return jsonify(result)
 
@@ -646,7 +649,7 @@ def create_result():
 
     percentage = (score / total_questions) * 100
     timestamp = datetime.utcnow()
-
+    difficulty=data.get("difficulty")
     attempt = QuizAttempt(
         quiz_id=quiz_id,
         user_id=request.current_user.id,
@@ -659,6 +662,7 @@ def create_result():
         question_order=question_order,
         answers_detail=answers_detail,
         status="submitted",
+        difficulty=(difficulty.strip().title() if isinstance(difficulty,str) else  None),
     )
 
     db.session.add(attempt)
@@ -833,7 +837,7 @@ def generate_synthetic():
             "percentage": round(pct, 2),
             "timestamp": (start_time + timedelta(days=i)).isoformat(),
             "question_order": list(range(1, total_q + 1)),
-            "status": "completed"
+            "status": "submitted"
         }
         created.append(attempt_data)
 
@@ -988,9 +992,15 @@ def calculate_streak_from_attempts(attempts):
         break
 
     return streak
+def difficulty_to_num(d):
+    if not d:
+        return 3  # default Medium
+    d = d.strip().title()
+    mapping = {"Very Easy": 1, "Easy": 2, "Medium": 3, "Hard": 4}
+    return mapping.get(d, 3)
 
 
-# ✅ FULL UPDATED /predict (copy-paste to replace your current predict endpoint)
+
 
 @app.route("/predict", methods=["GET"])
 @token_required
@@ -1004,217 +1014,146 @@ def predict_next_score():
 
     try:
         uid = int(uid)
-        quiz_id = int(quiz_id)  # ✅ ensure integer
+        quiz_id = int(quiz_id)
     except ValueError:
         return jsonify({"error": "invalid user_id or quiz_id"}), 400
 
-    # Authorization: user can only predict themselves
     if request.current_user.id != uid:
         return jsonify({"error": "Unauthorized"}), 401
 
-    # Fetch quiz info for nicer UI
     quiz = Quiz.query.get(quiz_id)
     quiz_title = quiz.title if quiz else f"Quiz #{quiz_id}"
     quiz_description = quiz.description if quiz else ""
 
-    # Get submitted attempts for THIS quiz from DB
+    # ✅ IMPORTANT: do NOT filter by difficulty
     attempts = (
         QuizAttempt.query
         .filter_by(user_id=uid, quiz_id=quiz_id, status="submitted")
-        .order_by(QuizAttempt.timestamp.asc())
+        .order_by(QuizAttempt.timestamp.asc(),QuizAttempt.id.asc())
         .all()
     )
 
-    # Feature #9: attempt requirement progress
     attempts_required = 2
     if len(attempts) < attempts_required:
-        progress = round((len(attempts) / attempts_required) * 100, 0) if attempts_required else 0
+        progress = round((len(attempts) / attempts_required) * 100, 0)
         return jsonify({
             "message": "At least 2 quiz attempts are required for prediction",
             "attempts_found": len(attempts),
             "attempts_required": attempts_required,
             "progress": progress,
-
             "user_id": uid,
             "quiz_id": quiz_id,
-            "quiz": {
-                "id": quiz_id,
-                "title": quiz_title,
-                "description": quiz_description
-            }
+            "quiz": {"id": quiz_id, "title": quiz_title, "description": quiz_description}
         }), 200
 
-    # Build series from DB
-    y_all = np.array([float(a.percentage) for a in attempts], dtype=float)
-    x_all = np.arange(1, len(y_all) + 1, dtype=float)
+    # y = percentage
+    y = np.array([float(a.percentage) for a in attempts], dtype=float)
 
-    # Summary stats (Feature #8)
-    best_pct = float(np.max(y_all))
-    avg_pct = float(np.mean(y_all))
-    last_pct = float(y_all[-1])
+    # x1 = attempt index
+    x1 = np.arange(1, len(y) + 1, dtype=float)
 
-    # Confidence + insight (Features #1, #2)
-    conf = confidence_level(len(y_all), y_all)
-    insight = trend_insight(y_all)
+    # x2 = difficulty numeric
+    x2 = np.array([difficulty_to_num(getattr(a, "difficulty", None)) for a in attempts], dtype=float)
 
-    # Streak (Feature #5)
-    streak = calculate_streak_from_attempts(attempts)
+    # Weighted regression to react to recent drops (newest matters more)
+    w = np.linspace(0.6, 1.0, len(y))  # older=0.6 newest=1.0
+    W = np.diag(w)
 
-    # Split for metrics (only if >=3)
-    if len(x_all) < 3:
-        x_train, y_train = x_all, y_all
-        x_test, y_test = np.array([]), np.array([])
-    else:
-        x_train, y_train, x_test, y_test = train_test_split_time_series(
-            x_all, y_all, train_ratio=0.7
-        )
+    # Design matrix: [1, x1, x2]
+    X = np.column_stack([np.ones_like(x1), x1, x2])
 
-    model = fit_linear_regression(x_train, y_train)
-    if model is None:
-        return jsonify({"error": "Model training failed"}), 500
+    beta, *_ = np.linalg.lstsq(W @ X, W @ y, rcond=None)
+    b0, b1, b2 = beta.tolist()
 
-    a, b = model["slope"], model["intercept"]
+    # Predict next attempt at same difficulty as last attempt
+    next_x1 = float(len(y) + 1)
+    last_diff_num = float(x2[-1])
 
-    # Metrics
-    y_train_pred = a * x_train + b
-    train_metrics = regression_metrics(y_train, y_train_pred)
+    predicted_pct = b0 + b1 * next_x1 + b2 * last_diff_num
 
-    if len(x_test) > 0:
-        y_test_pred = a * x_test + b
-        test_metrics = regression_metrics(y_test, y_test_pred)
-    else:
-        test_metrics = None
+    # Fallback for small data (prevents crazy 0%/100% swings with only few attempts)
+    if len(y) < 5:
+        predicted_pct = float(0.7 * y[-1] + 0.3 * y[-2])
 
-    # Predict next attempt
-    next_x = float(len(x_all) + 1)
-    predicted_pct = float(a * next_x + b)
-    predicted_pct = max(0.0, min(100.0, predicted_pct))
+    # clamp to [0, 100]
+    predicted_pct = float(max(0.0, min(100.0, predicted_pct)))
 
     total_questions = int(attempts[-1].total_questions or 0)
-    predicted_score = (
-        int(round((predicted_pct / 100.0) * total_questions))
-        if total_questions else None
-    )
+    predicted_score = int(round((predicted_pct / 100.0) * total_questions)) if total_questions else None
 
-    # Difficulty recommendation (already in your code)
-    diff = recommend_difficulty_from_percentage(predicted_pct)
+    # summary
+    best_pct = float(np.max(y))
+    avg_pct = float(np.mean(y))
+    last_pct = float(y[-1])
 
-    # History for chart (frontend)
+    conf = confidence_level(len(y), y)
+    insight = trend_insight(y)
+    streak = calculate_streak_from_attempts(attempts)
+
+    # history includes difficulty (useful for frontend)
     history = [
         {
             "attempt_index": i + 1,
             "percentage": float(att.percentage),
-            "timestamp": att.timestamp.isoformat()
+            "difficulty": getattr(att, "difficulty", None),
+            "timestamp": att.timestamp.isoformat() if att.timestamp else None,
         }
         for i, att in enumerate(attempts)
     ]
 
-    # Feature #3: goal estimation (optional)
-    goal_pct = None
-    attempts_to_goal = None
-    if goal is not None:
-        try:
-            goal_pct = float(goal)
-            goal_pct = max(0.0, min(100.0, goal_pct))
-
-            # if slope positive, estimate attempts needed
-            if a > 0:
-                x_goal = (goal_pct - b) / a  # solve a*x + b >= goal
-                attempts_to_goal = max(0, math.ceil(x_goal - len(x_all)))
-            else:
-                attempts_to_goal = None
-        except ValueError:
-            goal_pct = None
-            attempts_to_goal = None
-    # Feature #3: goal estimation (improved)
+    # goal estimation
     goal_pct = None
     attempts_to_goal = None
     goal_note = None
-
     if goal is not None:
         try:
             goal_pct = float(goal)
             goal_pct = max(0.0, min(100.0, goal_pct))
-
-            # if already meeting goal, need 0 attempts
             if predicted_pct >= goal_pct:
                 attempts_to_goal = 0
                 goal_note = "You are already on/above your goal based on the prediction."
             else:
-                # if slope positive, estimate attempts needed
-                if a > 0:
-                    x_goal = (goal_pct - b) / a  # solve a*x + b >= goal
-                    attempts_to_goal = max(0, math.ceil(x_goal - len(x_all)))
-                    goal_note = "Estimated using your current improvement trend."
+                if b1 > 0:
+                    x_goal = (goal_pct - (b0 + b2 * last_diff_num)) / b1
+                    attempts_to_goal = max(0, math.ceil(x_goal - len(y)))
+                    goal_note = "Estimated using your recent trend (difficulty-aware)."
                 else:
                     attempts_to_goal = None
-                    goal_note = "Your recent trend is not increasing yet. More practice will improve the estimate."
+                    goal_note = "Your trend is not increasing yet. More attempts will improve the estimate."
         except ValueError:
-            goal_pct = None
-            attempts_to_goal = None
             goal_note = "Invalid goal value."
 
-    # Feature #4: next action hint for frontend (button routing)
-    next_action = {
-        "type": "start_quiz",
-        "quiz_id": quiz_id,
-        "difficulty": diff["level"],
-        "label": f"Start a {diff['level']} quiz now"
-    }
+    diff = recommend_difficulty_from_percentage(predicted_pct)
 
     return jsonify({
         "user_id": uid,
         "quiz_id": quiz_id,
-
-        "quiz": {
-            "id": quiz_id,
-            "title": quiz_title,
-            "description": quiz_description
-        },
-
+        "quiz": {"id": quiz_id, "title": quiz_title, "description": quiz_description},
         "history": history,
 
         "summary": {
-            "attempts": len(y_all),
+            "attempts": len(y),
             "best_percentage": round(best_pct, 2),
             "average_percentage": round(avg_pct, 2),
             "last_percentage": round(last_pct, 2)
         },
 
-        "confidence": conf,      # Feature #1
-        "insight": insight,      # Feature #2
-        "streak": streak,        # Feature #5
+        "confidence": conf,
+        "insight": insight,
+        "streak": streak,
 
         "goal": {
-    "target_percentage": round(goal_pct, 2) if goal_pct is not None else None,
-    "estimated_attempts_needed": attempts_to_goal,
-    "note": goal_note
-        },
-
-
-        "dataset": {
-            "total_samples": len(y_all),
-            "train_samples": len(y_train),
-            "test_samples": len(y_test)
-        },
-
-        "training": {
-            "model": {
-                "slope": round(float(a), 4),
-                "intercept": round(float(b), 4)
-            },
-            "metrics": train_metrics
-        },
-
-        "testing": {
-            "metrics": test_metrics
+            "target_percentage": round(goal_pct, 2) if goal_pct is not None else None,
+            "estimated_attempts_needed": attempts_to_goal,
+            "note": goal_note
         },
 
         "prediction": {
-            "next_attempt_index": int(next_x),
+            "next_attempt_index": int(next_x1),
             "predicted_percentage": round(predicted_pct, 2),
             "predicted_score": predicted_score,
-            "total_questions": total_questions
+            "total_questions": total_questions,
+            "based_on_last_difficulty": getattr(attempts[-1], "difficulty", None)
         },
 
         "recommendation": {
@@ -1222,13 +1161,35 @@ def predict_next_score():
             "reason": diff["reason"]
         },
 
-        "next_action": next_action,  # Feature #4
-
-        "attempt_gate": {            # Feature #9 (useful even after unlocking)
+        "attempt_gate": {
             "attempts_found": len(attempts),
             "attempts_required": attempts_required
         }
     }), 200
+
+@app.route("/debug/attempts", methods=["GET"])
+@token_required
+def debug_attempts():
+    uid = int(request.args.get("user_id"))
+    quiz_id = int(request.args.get("quiz_id"))
+
+    rows = (
+        QuizAttempt.query
+        .filter_by(user_id=uid, quiz_id=quiz_id)
+        .order_by(QuizAttempt.timestamp.asc())
+        .all()
+    )
+
+    return jsonify([{
+        "id": r.id,
+        "quiz_id": r.quiz_id,
+        "status": r.status,
+        "score": r.score,
+        "total_questions": r.total_questions,
+        "percentage": r.percentage,
+        "timestamp": r.timestamp.isoformat() if r.timestamp else None
+    } for r in rows]), 200
+
 
 
 # -------------------------------------------------------
