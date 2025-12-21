@@ -19,6 +19,7 @@ Table of Contents
 - [Deployment URLs](#deployment-urls)
 - [AI/ML Component](#aiml-component)
 - [Key API Endpoints](#key-api-endpoints)
+- [API Documentation](#api-documentation)
 - [Project Structure](#project-structure)
 - [Modules Explanations](#modules-explanations)
   - [Module 1: Quiz Manager](#module-1-quiz-manager)
@@ -190,6 +191,41 @@ quiz_master_project2/
 ├── SETUP.md
 └── INTEGRATION_SUMMARY.md
 ```
+
+API Documentation
+-----------------
+
+### Authentication
+- **POST `/auth/google`** – Send a Google `id_token`; the backend verifies it, creates/links the user, and returns the app JWT (`token`) plus `user_id` and `email`.
+
+### Quiz Management
+- **POST `/quizzes`** – Create a quiz with `title` and optional `description`; returns `quiz_id`.
+- **POST `/quizzes/<quiz_id>/questions`** – Add a single question with `question`, `options` (list), and `correct_answer` (index).
+- **POST `/quizzes/<quiz_id>/questions/bulk`** – Add multiple questions at once; each entry needs `question_text`, `options`, `correct_answer`, and optional `difficulty` (`Very Easy`/`Easy`/`Medium`/`Hard`).
+- **PUT `/quizzes/<quiz_id>`** – Update quiz `title` and/or `description`.
+- **DELETE `/quizzes/<quiz_id>`** – Delete a quiz and its questions.
+
+### Taking Quizzes *(requires `Authorization: Bearer <token>` where noted)*
+- **POST `/quizzes/<quiz_id>/start`** *(auth)* – Start or resume an attempt at a chosen `difficulty` (`Very Easy`/`Easy`/`Medium`/`Hard`); returns `attempt_id` and `total_questions` with question order fixed.
+- **GET `/quizzes`** – List available quizzes (non-synthetic) with question counts.
+- **GET `/quizzes/<quiz_id>`** – Get quiz details with all questions and options (questions are shuffled).
+- **GET `/quizzes/<quiz_id>/questions/random/<difficulty>`** *(auth)* – For an active attempt, return the stored randomized question list for the selected difficulty.
+- **GET `/quizzes/<quiz_id>/attempts/<attempt_id>/question/<index>`** *(auth)* – Retrieve one question by index from an in-progress attempt (useful for paginated UIs).
+
+### Submitting Attempts & Results *(auth)*
+- **POST `/quizzes/<quiz_id>/submit`** – Grade the current attempt using provided `answers` array, update score/percentage/duration, mark it `submitted`, and return per-question correctness.
+- **POST `/results`** – Save a completed attempt directly with `quiz_id`, `score`, `total_questions`, optional `question_order`, `answers_detail`, and `duration_seconds`; computes percentage and returns stored data.
+- **GET `/results`** – List submitted attempts for the authenticated user; optional `quiz_id` query filters the list.
+- **GET `/results/stats`** – Aggregate stats (attempt count, average/best/latest percentages, totals correct/questions) for the authenticated user, optionally filtered by `quiz_id`.
+- **GET `/users/<user_id>/attempts`** – List submitted attempts for a specific user (must match the token user) with score, percentage, duration, and answer details.
+
+### Performance Tools *(auth)*
+- **POST `/module3/generate_synthetic`** – Generate synthetic attempt data (not saved to the DB) for ML experiments. Accepts parameters like `n`, `base`, `trend`, `noise`, `pattern`, `total_questions`, and optional `quiz_id`; returns the CSV path and samples.
+- **GET `/predict`** – Predict the user’s next score for a quiz using past submitted attempts; requires `user_id` and `quiz_id` query params (optional `goal`). Returns history, regression metrics, predicted percentage/score, difficulty recommendation, and goal progress.
+
+### Leaderboards *(auth)*
+- **GET `/leaderboard/weekly`** – Weekly leaderboard (top 10) based on weighted percentages adjusted by difficulty and timing; only users with at least 3 attempts (including Medium/Hard) that week are eligible. Returns the week range and ranked entries with badges.
+
 Modules Explanations
 --------------------
 
@@ -270,7 +306,6 @@ Implements the AI component that forecasts a user’s next quiz score and recomm
 ## Files to Explore
 - Backend: `backend/server.py` (prediction logic based on `QuizAttempt` history).
 - Data helpers: look for `calculate_streak_from_attempts`, `confidence_level`, and regression slope/intercept computation in `backend/server.py`.
-
   
 Troubleshooting
 ---------------
