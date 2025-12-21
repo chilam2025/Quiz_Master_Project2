@@ -128,3 +128,50 @@ with app.app_context():
         print("'otp_sent_at' already exists. Skipping.")
 
     print("✅ User OTP columns migration complete.")
+
+# add_google_sub_column.py
+from server import app, db
+from sqlalchemy import inspect, text
+
+with app.app_context():
+    inspector = inspect(db.engine)
+    user_cols = [c["name"] for c in inspector.get_columns("user")]
+
+    if "google_sub" not in user_cols:
+        print("Adding google_sub to user table...")
+        db.session.execute(text("ALTER TABLE \"user\" ADD COLUMN google_sub VARCHAR(255)"))
+        db.session.commit()
+        print("google_sub added.")
+    else:
+        print("google_sub already exists.")
+
+
+#REMOVE OTP COLUMNS
+from server import app, db
+from sqlalchemy import inspect, text
+
+with app.app_context():
+    inspector = inspect(db.engine)
+    user_columns = [col["name"] for col in inspector.get_columns("user")]
+
+    otp_columns = [
+        "is_verified",
+        "otp_hash",
+        "otp_expires_at",
+        "otp_sent_at",
+    ]
+
+    for col in otp_columns:
+        if col in user_columns:
+            print(f"Removing '{col}' column from 'user' table...")
+            try:
+                db.session.execute(
+                    text(f"ALTER TABLE \"user\" DROP COLUMN {col}")
+                )
+                db.session.commit()
+                print(f"'{col}' column removed.")
+            except Exception as e:
+                db.session.rollback()
+                print(f"Failed to remove '{col}': {e}")
+        else:
+            print(f"'{col}' column does not exist. Skipping.")
