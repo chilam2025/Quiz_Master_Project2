@@ -175,3 +175,24 @@ with app.app_context():
                 print(f"Failed to remove '{col}': {e}")
         else:
             print(f"'{col}' column does not exist. Skipping.")
+
+from server import app, db
+from sqlalchemy import inspect, text
+
+with app.app_context():
+    inspector = inspect(db.engine)
+    quiz_attempt_columns = [col['name'] for col in inspector.get_columns('quiz_attempt')]
+
+    if 'difficulty' not in quiz_attempt_columns:
+        print("Adding 'difficulty' column to 'quiz_attempt' table...")
+        db.session.execute(
+            text("""
+                ALTER TABLE quiz_attempt
+                ADD COLUMN difficulty VARCHAR(50) NOT NULL DEFAULT 'Easy'
+            """)
+        )
+        db.session.commit()
+        print("'difficulty' column added to 'quiz_attempt' table.")
+    else:
+        print("'difficulty' column already exists in 'quiz_attempt' table. Skipping addition.")
+
