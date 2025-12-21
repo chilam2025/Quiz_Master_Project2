@@ -15,6 +15,7 @@ Table of Contents
 - [Environment Configuration](#environment-configuration)
 - [Database Setup](#database-setup)
 - [Running with Docker Compose](#running-with-docker-compose)
+- [Dockerization](#dockerization)
 - [Deployment Guide](#deployment-guide)
 - [Deployment URLs](#deployment-urls)
 - [AI/ML Component](#aiml-component)
@@ -121,6 +122,70 @@ docker compose up --build
 - Frontend exposed on port **3000** (or mapped port defined in compose)
 - Provide `DATABASE_URL` and any secrets via an `.env` file loaded by Docker Compose
 
+Dockerization
+-------------
+The repository ships with a Docker-first workflow so contributors can run the entire stack without installing Python or Node locally:
+
+- **Install Docker/Compose**: Install Docker Desktop (macOS/Windows) or the Docker Engine package (Linux). Verify with `docker --version` and `docker compose version`.
+- **Prepare environment**: In the repository root, create a `.env` file with `DATABASE_URL`, `QUIZ_SECRET`, and any other secrets. Compose automatically loads this file.
+- **Backend image (`backend/Dockerfile`)**: Builds a slim Flask container that reads `DATABASE_URL` (and optional `PORT`/`QUIZ_SECRET`) at runtime. Compose publishes it on `localhost:5000` for local browsing.
+- **Frontend image (`frontend/quiz-frontend/Dockerfile`)**: Builds the React app and serves the static bundle from Nginx. During the Compose build, the `REACT_APP_API_URL` build arg is set to `http://backend:5000`, so the generated bundle calls the backend service on the Compose network.
+- **Service wiring (`docker-compose.yml`)**: Defines two services—`backend` and `frontend`—that share the default Compose bridge network. The backend receives `DATABASE_URL` from your shell or an `.env` file. The frontend declares `depends_on: backend` so Nginx waits for the API container, and it maps port `80` inside the container to `localhost:3000` on the host.
+
+### Common Docker commands (step-by-step)
+Use these from the repository root so new contributors can get running without prior Docker knowledge:
+
+1) **Build images**
+   ```bash
+   docker compose build
+   ```
+   - Downloads base images and produces `quiz_master_project2-backend` and `quiz_master_project2-frontend` images.
+
+2) **Start the stack (foreground logs)**
+   ```bash
+   docker compose up
+   ```
+   - Streams logs to your terminal. Use `Ctrl+C` to stop.
+
+3) **Start the stack (detached)**
+   ```bash
+   docker compose up -d
+   ```
+   - Runs containers in the background so you can keep your shell free.
+
+4) **Stop and remove containers**
+   ```bash
+   docker compose down
+   ```
+   - Shuts down running containers and frees ports. Add `--volumes` to drop any named volumes.
+
+5) **Watch logs while running detached**
+   ```bash
+   docker compose logs -f
+   ```
+   - Follows both services' logs; append the service name (e.g., `docker compose logs -f backend`) to filter.
+
+6) **Inspect running services**
+   ```bash
+   docker compose ps
+   ```
+   - Confirms which containers are up and which ports are exposed.
+
+7) **Rebuild after code changes**
+   ```bash
+   docker compose up --build
+   ```
+   - Rebuilds images before starting so frontend/backend changes take effect.
+
+8) **Reset containers and images (optional cleanup)**
+   ```bash
+   docker compose down --rmi local --volumes --remove-orphans
+   ```
+   - Removes containers, local images built by Compose, volumes, and any orphaned services.
+
+The result is an isolated environment where browser requests flow from the host to `localhost:3000` (frontend), which forwards API calls to `http://backend:5000` over the internal network. No extra reverse proxy configuration is needed for local development, and secrets stay outside the images thanks to environment variable injection at runtime.
+
+<a id="deployment-guide"></a>
 Deployment Guide
 ----------------
 The stack is deployable on any host that can run Python and Node builds. A common workflow:
@@ -137,7 +202,6 @@ The stack is deployable on any host that can run Python and Node builds. A commo
 3. **Docker/Compose**
    - Ensure the Compose file has the correct `DATABASE_URL` (e.g., via an `.env` file next to `docker-compose.yml`).
    - Push images to your registry and `docker compose up -d` on the target host.
-
 Deployment URLs
 ---------------
 - **Frontend (Render):** https://quiz-master-project2-frontend.onrender.com
