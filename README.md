@@ -16,8 +16,14 @@ Table of Contents
 - [Database Setup](#database-setup)
 - [Running with Docker Compose](#running-with-docker-compose)
 - [Deployment Guide](#deployment-guide)
+- [Deployment URLs](#deployment-urls)
+- [AI/ML Component](#aiml-component)
 - [Key API Endpoints](#key-api-endpoints)
 - [Project Structure](#project-structure)
+- [Modules Explanations](#modules-explanations)
+  - [Module 1: Quiz Manager](#module-1-quiz-manager)
+  - [Module 2: Results Tracker](#module-2-results-tracker)
+  - [Module 3: Performance Predictor](#module-3-performance-predictor)
 - [Troubleshooting](#troubleshooting)
 - [Further Reading](#further-reading)
 
@@ -131,6 +137,19 @@ The stack is deployable on any host that can run Python and Node builds. A commo
    - Ensure the Compose file has the correct `DATABASE_URL` (e.g., via an `.env` file next to `docker-compose.yml`).
    - Push images to your registry and `docker compose up -d` on the target host.
 
+Deployment URLs
+---------------
+- **Frontend (Render):** https://quiz-master-project2-frontend.onrender.com
+- **Backend (Render):** https://quiz-master-backend.onrender.com (configure `DATABASE_URL` and `QUIZ_SECRET` via Render dashboard)
+
+AI/ML Component
+---------------
+- **Model:** Lightweight linear regression (slope + intercept) trained per user per quiz on past attempt percentages.
+- **Dataset:** User’s submitted attempts stored in `QuizAttempt` (train/test split performed on the fly in `/predict`).
+- **Metrics:** Reports training/test MAE and RMSE plus dataset sample counts inside `/predict` response.
+- **Integration:** `GET /predict` endpoint returns next-score forecast, recommended difficulty, goal estimation, and streak/confidence insights for the UI.
+- **Synthetic data helper:** `POST /module3/generate_synthetic` produces optional in-memory attempts to experiment with the model.  
+
 Key API Endpoints
 -----------------
 - `POST /login` and `POST /register`
@@ -138,8 +157,11 @@ Key API Endpoints
 - `POST /quizzes/{id}/start`
 - `GET /quizzes/{id}/questions/random/{difficulty}`
 - `POST /quizzes/{id}/submit`
-- `GET /users/{id}/attempts`
-- `GET /predict?user_id=...`
+- `POST /results` (save a submitted attempt)
+- `GET /results` (list submitted attempts; optional `quiz_id` filter)
+- `GET /results/stats` (aggregate averages/best/latest)
+- `GET /users/{id}/attempts` (legacy per-user history already powering the existing results UI)
+- `GET /predict?user_id=...&quiz_id=...&goal=...`
 
 Project Structure
 -----------------
@@ -168,6 +190,88 @@ quiz_master_project2/
 ├── SETUP.md
 └── INTEGRATION_SUMMARY.md
 ```
+Modules Explanations
+--------------------
+
+Quick navigation:
+- [Module 1: Quiz Manager](#module-1-quiz-manager)
+- [Module 2: Results Tracker](#module-2-results-tracker)
+- [Module 3: Performance Predictor](#module-3-performance-predictor)
+  
+<a id="module-1-quiz-manager"></a>
+# Module 1: Quiz Manager
+This module covers quiz creation, delivery, and submission for the QuizMaster platform.
+
+## Responsibilities
+- Manage quiz metadata (title, description).
+- Serve randomized question sets by difficulty per quiz.
+- Handle quiz lifecycle: start attempt, fetch questions, submit answers.
+- Secure endpoints with JWT authentication for attempt workflows.
+
+## Key Backend Touchpoints
+- `GET /quizzes` — list all quizzes for selection.
+- `POST /quizzes/<quiz_id>/start` — create or resume an in-progress attempt for the authenticated user.
+- `GET /quizzes/<quiz_id>/questions/random/<difficulty>` — retrieve a randomized set of questions for the chosen difficulty.
+- `POST /quizzes/<quiz_id>/submit` — grade answers, persist attempt results, and return per-question feedback.
+- `POST /quizzes/<quiz_id>/questions/bulk` — seed/update quiz questions in bulk with difficulty metadata.
+
+## Frontend Pages
+- Quiz list and difficulty picker.
+- Quiz-taking experience (one question at a time) with JWT token attached on API calls.
+- Submission confirmation with score/percentage feedback.
+
+## Files to Explore
+- Backend: `backend/server.py` (quiz endpoints & models).
+- Frontend: `frontend/quiz-frontend/src/pages` and `frontend/quiz-frontend/src/services/api.js`.
+
+<a id="module-2-results-tracker"></a>
+# Module 2: Results Tracker
+
+Tracks user attempts, surfaces historical performance, and provides aggregated statistics per quiz and user.
+
+## Responsibilities
+- Persist quiz results for each authenticated user.
+- Expose history APIs for frontend charts and history tables.
+- Provide summary statistics (averages, best scores, totals) per user and per quiz.
+
+## Key Backend Touchpoints
+- `POST /results` — save a submitted quiz result (score, totals, duration, answers detail).
+- `GET /results` — fetch the authenticated user’s submitted attempts (optionally filtered by `quiz_id`).
+- `GET /results/stats` — return aggregate metrics (attempt count, averages, best score, latest attempt) for the user, with optional `quiz_id` filtering.
+- `GET /users/{id}/attempts` — legacy history endpoint already used by the UI to render attempt lists; `/results` simply standardizes the payload and filtering.
+
+## Frontend Pages
+- Results history list with timestamps and percentages.
+- Score trend charts (per quiz or overall) built from `/results` data.
+- Summary cards showing averages and best attempts from `/results/stats`.
+
+## Files to Explore
+- Backend: `backend/server.py` (results endpoints built on the `QuizAttempt` model).
+- Frontend: history/results pages in `frontend/quiz-frontend/src/pages` using `services/api.js`.
+
+<a id="module-3-performance-predictor"></a>
+# Module 3: Performance Predictor (AI/ML)
+Implements the AI component that forecasts a user’s next quiz score and recommends a difficulty level.
+
+## Responsibilities
+- Train a lightweight linear regression model on the user’s past quiz percentages.
+- Provide prediction and confidence insights via the `/predict` API.
+- Supply goal tracking, streak calculation, and category insights for the UI.
+- Generate synthetic attempt data for experimentation via `/module3/generate_synthetic`.
+
+## Key Backend Touchpoints
+- `GET /predict?user_id=<id>&quiz_id=<id>&goal=<optional>` — returns predicted percentage, recommended difficulty, goal estimation, and dataset metrics.
+- `POST /module3/generate_synthetic` — creates synthetic attempts in-memory to feed the model.
+
+## Frontend Pages
+- Performance dashboard showing predicted next score and recommended difficulty.
+- Trend chart for historical attempts and goal progress.
+
+## Files to Explore
+- Backend: `backend/server.py` (prediction logic based on `QuizAttempt` history).
+- Data helpers: look for `calculate_streak_from_attempts`, `confidence_level`, and regression slope/intercept computation in `backend/server.py`.
+
+  
 Troubleshooting
 ---------------
 - **Backend not connecting:** Ensure PostgreSQL is running, `DATABASE_URL` is valid, and backend is on port 5000. Check browser console and backend logs for errors.
