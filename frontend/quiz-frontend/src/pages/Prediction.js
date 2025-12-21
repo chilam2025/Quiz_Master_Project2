@@ -22,40 +22,40 @@ const containerStyle = {
   fontFamily: "Poppins, sans-serif",
 };
 
-const cardStyle = {
+const cardStyle = (isMobile) => ({
   background: "rgba(255,255,255,0.95)",
   borderRadius: "18px",
-  padding: "25px",
+  padding: isMobile ? "16px" : "25px",
   width: "92%",
   maxWidth: "900px",
   boxShadow: "0 16px 45px rgba(64,132,207,0.18)",
   textAlign: "center",
   border: "1px solid rgba(128,178,232,0.35)",
-};
+});
 
-const titleStyle = {
+const titleStyle = (isMobile) => ({
   fontWeight: "bold",
-  fontSize: "22px",
+  fontSize: isMobile ? "18px" : "22px",
   marginBottom: "8px",
   color: "#1f6fb2",
-};
+});
 
-const subtitleStyle = {
-  fontSize: "14px",
+const subtitleStyle = (isMobile) => ({
+  fontSize: isMobile ? "13px" : "14px",
   color: "#3a5c7a",
   marginBottom: "14px",
-};
+});
 
-const statBox = {
+const statBox = (isMobile) => ({
   background: "#f5f8fc",
-  padding: "14px",
+  padding: isMobile ? "12px" : "14px",
   borderRadius: "14px",
-  fontSize: "15px",
+  fontSize: isMobile ? "14px" : "15px",
   marginBottom: "12px",
   boxShadow: "inset 0 2px 5px rgba(0,0,0,0.04)",
   border: "1px solid #c7d9ef",
   textAlign: "left",
-};
+});
 
 const selectStyle = {
   width: "100%",
@@ -76,7 +76,7 @@ const progressBarContainer = {
 };
 
 const progressBarFill = (percentage) => ({
-  width: `${Math.max(0, Math.min(100, percentage))}%`,
+  width: `${Math.max(0, Math.min(100, Number(percentage) || 0))}%`,
   background: "linear-gradient(120deg, #57a5ff, #7ac7ff)",
   height: "18px",
   borderRadius: "10px",
@@ -111,24 +111,24 @@ const secondaryButton = {
   width: "100%",
 };
 
-const buttonRow = {
+const buttonRow = (isMobile) => ({
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
   gap: "10px",
   marginTop: "10px",
-};
+});
 
-const grid2 = {
+const grid2 = (isMobile) => ({
   display: "grid",
-  gridTemplateColumns: "1fr 1fr",
+  gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr",
   gap: "12px",
-};
+});
 
-const miniGrid = {
+const miniGrid = (isMobile) => ({
   display: "grid",
-  gridTemplateColumns: "1fr 1fr 1fr",
+  gridTemplateColumns: isMobile ? "1fr" : "1fr 1fr 1fr 1fr",
   gap: "10px",
-};
+});
 
 const miniCard = {
   background: "white",
@@ -149,6 +149,40 @@ function formatMaybeNumber(v, decimals = 2) {
   return num.toFixed(decimals);
 }
 
+function safeText(v, fallback = "—") {
+  if (v === null || v === undefined) return fallback;
+  const s = String(v).trim();
+  return s ? s : fallback;
+}
+
+// Custom tooltip (shows difficulty if present)
+function CustomTooltip({ active, payload, label }) {
+  if (!active || !payload || !payload.length) return null;
+  const row = payload?.[0]?.payload;
+  const pct = payload?.[0]?.value;
+  return (
+    <div
+      style={{
+        background: "white",
+        border: "1px solid #c7d9ef",
+        borderRadius: 10,
+        padding: 10,
+        boxShadow: "0 10px 25px rgba(64,132,207,0.12)",
+      }}
+    >
+      <div style={{ fontWeight: "bold", color: "#1f6fb2" }}>{label}</div>
+      <div style={{ marginTop: 4, color: "#3a5c7a" }}>
+        Percentage: <strong>{formatMaybeNumber(pct, 2)}%</strong>
+      </div>
+      {row?.difficulty ? (
+        <div style={{ marginTop: 4, color: "#3a5c7a" }}>
+          Difficulty: <strong>{row.difficulty}</strong>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export default function Prediction() {
   const navigate = useNavigate();
   const user = JSON.parse(localStorage.getItem("user"));
@@ -161,13 +195,25 @@ export default function Prediction() {
 
   const [goal, setGoal] = useState(80);
 
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" ? window.innerWidth <= 600 : false
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth <= 600);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+
   async function loadQuizzes() {
     try {
-         const res = await fetch(`${API_URL}/quizzes`, {method: "GET",
-          headers: user?.token ? { Authorization: `Bearer ${user.token}` } : {},});
-         const data = await res.json();
+      const res = await fetch(`${API_URL}/quizzes`, {
+        method: "GET",
+        headers: user?.token ? { Authorization: `Bearer ${user.token}` } : {},
+      });
+      const data = await res.json();
       setQuizzes(Array.isArray(data) ? data : []);
-      if (Array.isArray(data) && data.length > 0) setSelectedQuizId(String(data[0].id));
+      if (Array.isArray(data) && data.length > 0)
+        setSelectedQuizId(String(data[0].id));
     } catch (err) {
       console.error("Failed to load quizzes:", err);
       setQuizzes([]);
@@ -197,18 +243,26 @@ export default function Prediction() {
 
       const data = await res.json();
 
-      const gated =
-        data?.attempts_found !== undefined &&
-        data?.attempts_required !== undefined &&
-        data?.attempts_found < data?.attempts_required;
+      const attemptsFound =
+        data?.attempt_gate?.attempts_found ?? data?.attempts_found ?? 0;
+      const attemptsRequired =
+        data?.attempt_gate?.attempts_required ?? data?.attempts_required ?? 2;
+
+      const gated = Number(attemptsFound) < Number(attemptsRequired);
+
+      const lastDiff =
+        data?.prediction?.based_on_last_difficulty ??
+        data?.based_on_last_difficulty ??
+        null;
 
       setPrediction({
         ...data,
         gated,
-        predicted_percentage: data.prediction?.predicted_percentage,
-        next_attempt_index: data.prediction?.next_attempt_index,
-        predicted_score: data.prediction?.predicted_score,
-        total_questions: data.prediction?.total_questions,
+        predicted_percentage: data?.prediction?.predicted_percentage,
+        next_attempt_index: data?.prediction?.next_attempt_index,
+        predicted_score: data?.prediction?.predicted_score,
+        total_questions: data?.prediction?.total_questions,
+        based_on_last_difficulty: lastDiff,
         selectedQuizId: quizId,
       });
     } catch (err) {
@@ -247,14 +301,23 @@ export default function Prediction() {
     [quizzes, selectedQuizId]
   );
 
+  const recommendedDifficulty =
+    prediction?.recommendation?.next_quiz_difficulty ?? "Medium";
+
   const chartData =
     prediction?.history?.map((h) => ({
       name: `Attempt ${h.attempt_index ?? ""}`.trim(),
       percentage: h.percentage,
+      difficulty: h.difficulty,
     })) || [];
 
+  // ✅ FIX: Next Attempt should show RECOMMENDED difficulty, not last attempted difficulty
   if (prediction?.predicted_percentage !== undefined) {
-    chartData.push({ name: "Next Attempt", percentage: prediction.predicted_percentage });
+    chartData.push({
+      name: "Next Attempt",
+      percentage: prediction.predicted_percentage,
+      difficulty: prediction?.recommendation?.next_quiz_difficulty ?? null,
+    });
   }
 
   const bestPct = prediction?.summary?.best_percentage;
@@ -262,16 +325,16 @@ export default function Prediction() {
   const lastPct = prediction?.summary?.last_percentage;
 
   const attemptsFound =
-    prediction?.attempt_gate?.attempts_found ?? prediction?.attempts_found;
+    prediction?.attempt_gate?.attempts_found ?? prediction?.attempts_found ?? 0;
   const attemptsRequired =
-    prediction?.attempt_gate?.attempts_required ?? prediction?.attempts_required;
+    prediction?.attempt_gate?.attempts_required ??
+    prediction?.attempts_required ??
+    2;
 
-  const progressGate = prediction?.progress;
+  const progressGate =
+    prediction?.progress ??
+    Math.round((Number(attemptsFound) / Number(attemptsRequired)) * 100);
 
-  const recommendedDifficulty =
-    prediction?.recommendation?.next_quiz_difficulty || "Medium";
-
-  // ✅ FIXED: correct route based on your QuizPage.js
   function startRecommendedQuiz() {
     const qid = selectedQuizId;
     const diff = recommendedDifficulty || "Medium";
@@ -290,8 +353,8 @@ export default function Prediction() {
   if (loading) {
     return (
       <div style={containerStyle}>
-        <div style={cardStyle}>
-          <h2 style={titleStyle}>Performance Prediction</h2>
+        <div style={cardStyle(isMobile)}>
+          <h2 style={titleStyle(isMobile)}>Performance Prediction</h2>
           <p>Loading quizzes...</p>
         </div>
       </div>
@@ -301,14 +364,19 @@ export default function Prediction() {
   if (!quizzes.length) {
     return (
       <div style={containerStyle}>
-        <div style={cardStyle}>
-          <h2 style={titleStyle}>Performance Prediction</h2>
-          <div style={statBox}>
+        <div style={cardStyle(isMobile)}>
+          <h2 style={titleStyle(isMobile)}>Performance Prediction</h2>
+          <div style={statBox(isMobile)}>
             <strong>No quizzes found.</strong>
             <br />
             Please create a quiz first.
           </div>
-          <button style={primaryButton} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => navigate("/quizzes")}>
+          <button
+            style={primaryButton}
+            onMouseEnter={hoverOn}
+            onMouseLeave={hoverOff}
+            onClick={() => navigate("/quizzes")}
+          >
             Return to Quizzes
           </button>
         </div>
@@ -316,17 +384,23 @@ export default function Prediction() {
     );
   }
 
+  const confLabel = prediction?.confidence?.label;
+  const confReason = prediction?.confidence?.reason;
+  const insightLabel = prediction?.insight?.label;
+  const insightReason = prediction?.insight?.reason;
+  const streakDays = prediction?.streak ?? 0;
+
   return (
     <div style={containerStyle}>
       <motion.div
         initial={{ opacity: 0, y: 15 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3 }}
-        style={cardStyle}
+        style={cardStyle(isMobile)}
       >
-        <h2 style={titleStyle}>Performance Prediction</h2>
+        <h2 style={titleStyle(isMobile)}>Performance Prediction</h2>
 
-        <div style={subtitleStyle}>
+        <div style={subtitleStyle(isMobile)}>
           {prediction?.quiz?.title
             ? `Showing prediction for: ${prediction.quiz.title}`
             : selectedQuiz?.title
@@ -334,9 +408,8 @@ export default function Prediction() {
             : ""}
         </div>
 
-        {/* Selector + summary */}
-        <div style={grid2}>
-          <div style={statBox}>
+        <div style={grid2(isMobile)}>
+          <div style={statBox(isMobile)}>
             <strong>Select Quiz:</strong>
             <select
               style={selectStyle}
@@ -356,9 +429,9 @@ export default function Prediction() {
             ) : null}
           </div>
 
-          <div style={{ ...statBox, padding: 14 }}>
+          <div style={statBox(isMobile)}>
             <strong>Quick Summary</strong>
-            <div style={{ marginTop: 10, ...miniGrid }}>
+            <div style={{ marginTop: 10, ...miniGrid(isMobile) }}>
               <div style={miniCard}>
                 <div style={miniLabel}>Best</div>
                 <div style={miniValue}>{formatMaybeNumber(bestPct, 2)}%</div>
@@ -371,58 +444,97 @@ export default function Prediction() {
                 <div style={miniLabel}>Last</div>
                 <div style={miniValue}>{formatMaybeNumber(lastPct, 2)}%</div>
               </div>
+              <div style={miniCard}>
+                <div style={miniLabel}>Streak</div>
+                <div style={miniValue}>{streakDays} day(s)</div>
+              </div>
             </div>
           </div>
         </div>
 
         {loadingPrediction && (
-          <div style={statBox}>
+          <div style={statBox(isMobile)}>
             <strong>Loading prediction...</strong>
           </div>
         )}
 
-        {/* Gate */}
         {prediction?.gated && !loadingPrediction && (
-          <div style={statBox}>
+          <div style={statBox(isMobile)}>
             <strong>Unlock prediction</strong>
             <div style={{ marginTop: 6 }}>
-              Attempts: <strong>{attemptsFound ?? 0}</strong> /{" "}
-              <strong>{attemptsRequired ?? 2}</strong>
+              Attempts: <strong>{attemptsFound}</strong> /{" "}
+              <strong>{attemptsRequired}</strong>
             </div>
             <div style={progressBarContainer}>
-              <div style={progressBarFill(Number(progressGate ?? 0))} />
+              <div style={progressBarFill(progressGate)} />
             </div>
             <div style={{ marginTop: 8, fontSize: 14, color: "#3a5c7a" }}>
-              Do {Math.max(0, (attemptsRequired ?? 2) - (attemptsFound ?? 0))} more attempt(s) to unlock prediction.
+              Do {Math.max(0, attemptsRequired - attemptsFound)} more attempt(s)
+              to unlock prediction.
             </div>
-            <div style={buttonRow}>
-              <button style={primaryButton} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => navigate(`/quiz/${selectedQuizId}?difficulty=Medium`)}>
+            <div style={buttonRow(isMobile)}>
+              <button
+                style={primaryButton}
+                onMouseEnter={hoverOn}
+                onMouseLeave={hoverOff}
+                onClick={() => {
+                  const diff =
+                    prediction?.recommendation?.next_quiz_difficulty ?? "Medium";
+                  navigate(
+                    `/quiz/${selectedQuizId}?difficulty=${encodeURIComponent(
+                      diff
+                    )}`
+                  );
+                }}
+              >
                 Attempt This Quiz
               </button>
-              <button style={secondaryButton} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => getPrediction(selectedQuizId, goal)}>
+              <button
+                style={secondaryButton}
+                onMouseEnter={hoverOn}
+                onMouseLeave={hoverOff}
+                onClick={() => getPrediction(selectedQuizId, goal)}
+              >
                 Refresh
               </button>
             </div>
           </div>
         )}
 
-        {/* Normal */}
         {!prediction?.gated && prediction && !loadingPrediction && (
           <>
-            <div style={grid2}>
-              <div style={statBox}>
+            <div style={grid2(isMobile)}>
+              <div style={statBox(isMobile)}>
                 <strong>Predicted Percentage:</strong>{" "}
                 {prediction.predicted_percentage !== undefined
                   ? `${prediction.predicted_percentage}%`
                   : "—"}
                 <div style={progressBarContainer}>
-                  <div style={progressBarFill(Number(prediction.predicted_percentage ?? 0))} />
+                  <div
+                    style={progressBarFill(
+                      Number(prediction.predicted_percentage ?? 0)
+                    )}
+                  />
+                </div>
+
+                <div style={{ marginTop: 8, fontSize: 13, color: "#3a5c7a" }}>
+                  Based on last difficulty:{" "}
+                  <strong>
+                    {safeText(prediction.based_on_last_difficulty, "Unknown")}
+                  </strong>
+                </div>
+
+                {/* ✅ Extra clarity */}
+                <div style={{ marginTop: 6, fontSize: 13, color: "#3a5c7a" }}>
+                  Recommended next difficulty:{" "}
+                  <strong>{safeText(recommendedDifficulty, "Unknown")}</strong>
                 </div>
               </div>
 
-              <div style={statBox}>
+              <div style={statBox(isMobile)}>
                 <strong>Expected Score:</strong>{" "}
-                {prediction.predicted_score !== undefined && prediction.total_questions !== undefined
+                {prediction.predicted_score !== undefined &&
+                prediction.total_questions !== undefined
                   ? `${prediction.predicted_score} / ${prediction.total_questions}`
                   : "—"}
                 <div style={{ marginTop: 8, fontSize: 14, color: "#3a5c7a" }}>
@@ -431,11 +543,54 @@ export default function Prediction() {
               </div>
             </div>
 
-            {/* Goal (FIXED message) */}
-            <div style={statBox}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={grid2(isMobile)}>
+              <div style={statBox(isMobile)}>
+                <strong>Confidence</strong>
+                <div
+                  style={{
+                    marginTop: 6,
+                    color: "#1f6fb2",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {safeText(confLabel)}
+                </div>
+                <div style={{ marginTop: 4, fontSize: 13, color: "#3a5c7a" }}>
+                  {safeText(confReason, "")}
+                </div>
+              </div>
+
+              <div style={statBox(isMobile)}>
+                <strong>Insight</strong>
+                <div
+                  style={{
+                    marginTop: 6,
+                    color: "#1f6fb2",
+                    fontWeight: "bold",
+                  }}
+                >
+                  {safeText(insightLabel)}
+                </div>
+                <div style={{ marginTop: 4, fontSize: 13, color: "#3a5c7a" }}>
+                  {safeText(insightReason, "")}
+                </div>
+              </div>
+            </div>
+
+            <div style={statBox(isMobile)}>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 10,
+                  flexWrap: "wrap",
+                }}
+              >
                 <strong>Set a Goal</strong>
-                <span style={{ fontWeight: "bold", color: "#1f6fb2" }}>{goal}%</span>
+                <span style={{ fontWeight: "bold", color: "#1f6fb2" }}>
+                  {goal}%
+                </span>
               </div>
 
               <input
@@ -449,57 +604,99 @@ export default function Prediction() {
 
               <div style={{ marginTop: 10, fontSize: 14, color: "#3a5c7a" }}>
                 {prediction?.goal?.estimated_attempts_needed === 0 ? (
-                  <span>✅ You’re predicted to reach this goal by the next attempt.</span>
+                  <span>You’re predicted to reach this goal by the next attempt.</span>
                 ) : prediction?.goal?.estimated_attempts_needed !== null &&
                   prediction?.goal?.estimated_attempts_needed !== undefined ? (
                   <span>
-                    Estimated attempts to reach {formatMaybeNumber(prediction.goal.target_percentage, 0)}%:{" "}
+                    Estimated attempts to reach{" "}
+                    {formatMaybeNumber(prediction.goal.target_percentage, 0)}%:{" "}
                     <strong>{prediction.goal.estimated_attempts_needed}</strong>
                   </span>
                 ) : (
-                  <span>{prediction?.goal?.note || "Try more attempts to improve the estimate."}</span>
+                  <span>
+                    {prediction?.goal?.note ||
+                      "Try more attempts to improve the estimate."}
+                  </span>
                 )}
               </div>
             </div>
 
-            {/* Recommendation + Action */}
-            <div style={statBox}>
+            <div style={statBox(isMobile)}>
               <strong>Next Action</strong>
               <div style={{ marginTop: 6, fontSize: 14, color: "#3a5c7a" }}>
                 Start your next attempt with the recommended difficulty.
               </div>
 
-              <div style={buttonRow}>
-                <button style={primaryButton} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={startRecommendedQuiz}>
+              <div style={buttonRow(isMobile)}>
+                <button
+                  style={primaryButton}
+                  onMouseEnter={hoverOn}
+                  onMouseLeave={hoverOff}
+                  onClick={startRecommendedQuiz}
+                >
                   Start Recommended Quiz
                 </button>
-                <button style={secondaryButton} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => getPrediction(selectedQuizId, goal)}>
+                <button
+                  style={secondaryButton}
+                  onMouseEnter={hoverOn}
+                  onMouseLeave={hoverOff}
+                  onClick={() => getPrediction(selectedQuizId, goal)}
+                >
                   Refresh
                 </button>
               </div>
             </div>
 
-            {/* Chart */}
-            <div style={{ marginTop: 12, height: 280, width: "100%" }}>
+            <div
+              style={{
+                marginTop: 12,
+                height: isMobile ? 220 : 280,
+                width: "100%",
+              }}
+            >
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                <LineChart
+                  data={chartData}
+                  margin={{ top: 5, right: 20, left: 0, bottom: 5 }}
+                >
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" />
+                  <XAxis
+                    dataKey="name"
+                    interval={0}
+                    angle={isMobile ? -25 : 0}
+                    textAnchor={isMobile ? "end" : "middle"}
+                    height={isMobile ? 50 : 30}
+                  />
                   <YAxis domain={[0, 100]} />
-                  <Tooltip />
-                  <Line type="monotone" dataKey="percentage" stroke="#57a5ff" strokeWidth={3} activeDot={{ r: 6 }} />
+                  <Tooltip content={<CustomTooltip />} />
+                  <Line
+                    type="monotone"
+                    dataKey="percentage"
+                    stroke="#57a5ff"
+                    strokeWidth={3}
+                    activeDot={{ r: 6 }}
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>
           </>
         )}
 
-        {/* Bottom nav */}
-        <div style={buttonRow}>
-          <button style={secondaryButton} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => navigate("/quizzes")}>
+        <div style={buttonRow(isMobile)}>
+          <button
+            style={secondaryButton}
+            onMouseEnter={hoverOn}
+            onMouseLeave={hoverOff}
+            onClick={() => navigate("/quizzes")}
+          >
             Return to Quizzes
           </button>
-          <button style={secondaryButton} onMouseEnter={hoverOn} onMouseLeave={hoverOff} onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}>
+          <button
+            style={secondaryButton}
+            onMouseEnter={hoverOn}
+            onMouseLeave={hoverOff}
+            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          >
             Back to Top
           </button>
         </div>
