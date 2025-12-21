@@ -155,7 +155,7 @@ function safeText(v, fallback = "—") {
   return s ? s : fallback;
 }
 
-// Custom tooltip (shows difficulty if present)
+// ✅ Custom tooltip (shows difficulty if present)
 function CustomTooltip({ active, payload, label }) {
   if (!active || !payload || !payload.length) return null;
   const row = payload?.[0]?.payload;
