@@ -26,7 +26,6 @@ from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
 
-
 ENV_PATH = Path(__file__).with_name(".env")
 load_dotenv(ENV_PATH)
 load_dotenv(Path(__file__).with_name(".env"))  # loads backend/.env if server.py is in backend/
@@ -108,6 +107,7 @@ class QuizAttempt(db.Model):
     status = db.Column(db.String(20), default="in_progress")
     # Stores per-question review details (selected vs correct for each)
     answers_detail = db.Column(db.JSON, nullable=True)
+    difficulty = db.Column(db.String(50), nullable=False, default="Easy")
 
 # -------------------------
 # Auth endpoints
@@ -378,6 +378,7 @@ def start_quiz(quiz_id):
     attempt.question_order = [q.id for q in selected]
     attempt.timestamp = datetime.utcnow()
     attempt.started_at = attempt.started_at or datetime.utcnow()
+    attempt.difficulty = difficulty
 
     db.session.commit()
 
@@ -1243,21 +1244,78 @@ def weekly_leaderboard():
     start_of_week = datetime.combine(start_date, datetime.min.time())
     end_of_week = start_of_week + timedelta(days=7)
 
+    DIFF_WEIGHT = {
+        "Very Easy": 0.9,
+        "Easy": 1.0,
+        "Medium": 1.2,
+        "Hard": 1.5,
+    }
+
+    EXPECTED_SEC_PER_Q = {
+        "Very Easy": 25,
+        "Easy": 35,
+        "Medium": 45,
+        "Hard": 60,
+    }
+
     attempts = QuizAttempt.query.filter(
         QuizAttempt.status == "submitted",
         QuizAttempt.timestamp >= start_of_week,
         QuizAttempt.timestamp < end_of_week,
     ).all()
 
-    user_stats = defaultdict(lambda: {"percentages": [], "durations": []})
+    user_stats = defaultdict(lambda: {
+        "weighted_points_sum": 0.0,
+        "weight_sum": 0.0,
+        "time_ratios": [],
+        "attempts_count": 0,
+        "has_medium_or_hard": False,
+    })
+
+    # ✅ helper: normalize any weird values into the 4 valid labels
+    def norm_diff(raw):
+        if raw is None:
+            return "Easy"
+        s = str(raw).strip().lower()
+        s = s.replace("-", " ").replace("_", " ")
+        s = " ".join(s.split())  # collapse spaces
+
+        if s in ("very easy", "veryeasy"):
+            return "Very Easy"
+        if s == "easy":
+            return "Easy"
+        if s in ("medium", "med"):
+            return "Medium"
+        if s == "hard":
+            return "Hard"
+        return "Easy"
 
     for att in attempts:
         if att.percentage is None:
             continue
+
+        diff = norm_diff(getattr(att, "difficulty", None))
+
+        # ✅ safe lookups (no KeyError)
+        w = DIFF_WEIGHT.get(diff, DIFF_WEIGHT["Easy"])
+
         stats = user_stats[att.user_id]
-        stats["percentages"].append(att.percentage)
-        if att.duration_seconds is not None:
-            stats["durations"].append(att.duration_seconds)
+        stats["attempts_count"] += 1
+
+        stats["weighted_points_sum"] += float(att.percentage) * w
+        stats["weight_sum"] += w
+
+        if diff in ("Medium", "Hard"):
+            stats["has_medium_or_hard"] = True
+
+        dur = getattr(att, "duration_seconds", None)
+        tq = getattr(att, "total_questions", None)
+
+        if dur is not None and tq:
+            expected_sec = EXPECTED_SEC_PER_Q.get(diff, EXPECTED_SEC_PER_Q["Easy"])
+            expected = expected_sec * int(tq)
+            if expected > 0:
+                stats["time_ratios"].append(float(dur) / float(expected))
 
     if not user_stats:
         return jsonify({
@@ -1266,41 +1324,55 @@ def weekly_leaderboard():
             "leaders": []
         }), 200
 
-    users = User.query.filter(User.id.in_(user_stats.keys())).all()
+    MIN_ATTEMPTS = 3
+    REQUIRE_MEDIUM_OR_HARD = True
+
+    eligible_user_ids = []
+    for uid, stats in user_stats.items():
+        if stats["attempts_count"] < MIN_ATTEMPTS:
+            continue
+        if REQUIRE_MEDIUM_OR_HARD and not stats["has_medium_or_hard"]:
+            continue
+        eligible_user_ids.append(uid)
+
+    if not eligible_user_ids:
+        return jsonify({
+            "week_start": start_of_week.isoformat(),
+            "week_end": end_of_week.isoformat(),
+            "leaders": []
+        }), 200
+
+    users = User.query.filter(User.id.in_(eligible_user_ids)).all()
     user_map = {u.id: u for u in users}
 
     leaderboard = []
-    for uid, stats in user_stats.items():
-        percentages = stats["percentages"]
-        durations = stats["durations"]
-        avg_pct = round(sum(percentages) / len(percentages), 2)
-        avg_duration = None
-        if durations:
-            avg_duration = int(sum(durations) / len(durations))
+    for uid in eligible_user_ids:
+        stats = user_stats[uid]
+        if stats["weight_sum"] <= 0:
+            continue
+
+        weighted_score = round(stats["weighted_points_sum"] / stats["weight_sum"], 2)
+
+        avg_time_ratio = None
+        if stats["time_ratios"]:
+            avg_time_ratio = round(sum(stats["time_ratios"]) / len(stats["time_ratios"]), 3)
 
         leaderboard.append({
             "user_id": uid,
             "email": user_map.get(uid).email if user_map.get(uid) else "Unknown",
-            "average_percentage": avg_pct,
-            "average_duration_seconds": avg_duration,
-            "attempts_count": len(percentages),
+            "weighted_score": weighted_score,
+            "avg_time_ratio": avg_time_ratio,
+            "attempts_count": stats["attempts_count"],
         })
 
     leaderboard.sort(key=lambda item: (
-        -item["average_percentage"],
-        item["average_duration_seconds"] if item["average_duration_seconds"] is not None else float("inf"),
+        -item["weighted_score"],
+        item["avg_time_ratio"] if item["avg_time_ratio"] is not None else float("inf"),
     ))
 
     for idx, entry in enumerate(leaderboard, start=1):
         entry["rank"] = idx
-        if idx == 1:
-            entry["badge"] = "gold"
-        elif idx == 2:
-            entry["badge"] = "silver"
-        elif idx == 3:
-            entry["badge"] = "bronze"
-        else:
-            entry["badge"] = None
+        entry["badge"] = "gold" if idx == 1 else "silver" if idx == 2 else "bronze" if idx == 3 else None
 
     return jsonify({
         "week_start": start_of_week.isoformat(),
@@ -1308,9 +1380,6 @@ def weekly_leaderboard():
         "leaders": leaderboard[:10]
     }), 200
 
-# =====================================================
-# MAIN ANALYTICS ENDPOINT
-# =====================================================
 
 
 
