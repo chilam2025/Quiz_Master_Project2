@@ -22,6 +22,9 @@ import secrets
 import requests
 from dotenv import load_dotenv
 from pathlib import Path
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
+
 
 
 ENV_PATH = Path(__file__).with_name(".env")
@@ -66,12 +69,7 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=False)
     password_hash = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(20), default="user")
-    #  OTP + verification
-    is_verified = db.Column(db.Boolean, default=False)
-    otp_hash = db.Column(db.String(255), nullable=True)
-    otp_expires_at = db.Column(db.DateTime, nullable=True)
-    otp_sent_at = db.Column(db.DateTime, nullable=True)
-
+    google_sub = db.Column(db.String(255), unique=True, nullable=True)
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
 
@@ -110,71 +108,90 @@ class QuizAttempt(db.Model):
     status = db.Column(db.String(20), default="in_progress")
     # Stores per-question review details (selected vs correct for each)
     answers_detail = db.Column(db.JSON, nullable=True)
-    # Stores per-question review details (question text, selected vs correct)
-    answers_detail = db.Column(db.JSON, nullable=True)
 
+# -------------------------
+# Auth endpoints
+# -------------------------
 
-#OTP HELPER FUNCTION
-OTP_TTL_MINUTES = 10
-OTP_RESEND_COOLDOWN_SECONDS = 30
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID")
 
-def generate_otp_code():
-    # 6-digit numeric OTP
-    return f"{secrets.randbelow(10**6):06d}"
-
-def set_user_otp(user):
-    code = generate_otp_code()
-    user.otp_hash = generate_password_hash(code)
-    user.otp_expires_at = datetime.utcnow() + timedelta(minutes=OTP_TTL_MINUTES)
-    user.otp_sent_at = datetime.utcnow()
-    return code
-
-def verify_user_otp(user, code: str) -> bool:
-    if not user.otp_hash or not user.otp_expires_at:
-        return False
-    if datetime.utcnow() > user.otp_expires_at:
-        return False
-    return check_password_hash(user.otp_hash, code)
-#SEND OTP EMAIL
-import requests
-import os
-
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY")
-FROM_EMAIL = os.environ.get("FROM_EMAIL", "no-reply@yourdomain.com")
-
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-
-SMTP_EMAIL = os.environ.get("SMTP_EMAIL")
-SMTP_PASSWORD = os.environ.get("SMTP_PASSWORD")
-
-def send_otp_email(to_email, code):
-    if not SMTP_EMAIL or not SMTP_PASSWORD:
-        raise RuntimeError("SMTP credentials not set")
-
-    msg = MIMEMultipart()
-    msg["From"] = SMTP_EMAIL
-    msg["To"] = to_email
-    msg["Subject"] = "Your Quiz OTP Code"
-
-    body = f"""
-    <h3>Your OTP Code</h3>
-    <p><b>{code}</b></p>
-    <p>This code expires in 10 minutes.</p>
+@app.route("/auth/google", methods=["POST"])
+def auth_google():
     """
-    msg.attach(MIMEText(body, "html"))
+    Frontend sends:
+    { "id_token": "<google id token>" }
+
+    Backend verifies token with Google and returns:
+    { token, user_id, email }
+    """
+    data = request.get_json() or {}
+    token_from_client = data.get("id_token")
+
+    if not token_from_client:
+        return jsonify({"error": "id_token is required"}), 400
+
+    if not GOOGLE_CLIENT_ID:
+        return jsonify({"error": "GOOGLE_CLIENT_ID not set in env"}), 500
 
     try:
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(SMTP_EMAIL, SMTP_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-    except Exception as e:
-        raise RuntimeError(f"SMTP error: {str(e)}")
+        # Verify token signature + audience + expiry
+        idinfo = id_token.verify_oauth2_token(
+            token_from_client,
+            google_requests.Request(),
+            GOOGLE_CLIENT_ID
+        )
 
+        # Extract user info
+        email = (idinfo.get("email") or "").lower().strip()
+        sub = idinfo.get("sub")  # unique google user id
+        email_verified = idinfo.get("email_verified", False)
 
+        if not email or not sub:
+            return jsonify({"error": "Invalid Google token payload"}), 401
+
+        # (optional) require verified google email
+        if not email_verified:
+            return jsonify({"error": "Google email not verified"}), 403
+
+    except ValueError as e:
+        # Token invalid / expired / wrong audience
+        return jsonify({"error": f"Invalid Google token: {str(e)}"}), 401
+
+    # Find user by google_sub OR email
+    user = None
+    if sub:
+        user = User.query.filter_by(google_sub=sub).first()
+    if not user:
+        user = User.query.filter_by(email=email).first()
+
+    # Create new user if not exists
+    if not user:
+        user = User(
+            email=email,
+            google_sub=sub,
+            role="user",
+        )
+        # set a random password hash so DB NOT NULL is satisfied
+        random_pw = secrets.token_urlsafe(32)
+        user.set_password(random_pw)
+
+        db.session.add(user)
+        db.session.commit()
+    else:
+        # attach google_sub if missing
+        if not user.google_sub:
+            user.google_sub = sub
+            db.session.commit()
+
+    # issue your own JWT (same as your current generate_token)
+    jwt_token = generate_token(user.id, hours=12)
+
+    return jsonify({
+        "message": "Google login successful",
+        "user_id": user.id,
+        "email": user.email,
+        "token": jwt_token
+    }), 200
 
 # -------------------------
 # Helpers: token generation + decorator
@@ -212,163 +229,6 @@ def token_required(f):
             return jsonify({"error": "Token is invalid!"}), 401
         return f(*args, **kwargs)
     return wrapped
-
-# -------------------------
-# Auth endpoints
-# -------------------------
-def email_domain_exists(email):
-    return True
-
-
-@app.route("/register", methods=["POST"])
-def register():
-    data = request.get_json() or {}
-    email = data.get("email", "").strip().lower()
-    password = data.get("password", "").strip()
-
-    if not email or not password:
-        return jsonify({"error": "email and password required"}), 400
-
-    email_regex = r"^[\w\.-]+@[\w\.-]+\.\w+$"
-    if not re.match(email_regex, email):
-        return jsonify({"error": "Invalid email format"}), 400
-
-    existing = User.query.filter_by(email=email).first()
-    if existing:
-        if not existing.is_verified:
-            # resend OTP for unverified user
-            code = set_user_otp(existing)
-            db.session.commit()
-            try:
-                send_otp_email(email, code)
-            except Exception as e:
-                return jsonify({"error": f"Failed to resend OTP email: {str(e)}"}), 500
-
-            return jsonify({
-                "message": "Account exists but not verified. OTP resent.",
-                "email": existing.email,
-                "requires_verification": True
-            }), 200
-
-        # verified user exists
-        return jsonify({"error": "Email already exists. Please login."}), 400
-
-    password_regex = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&#])[A-Za-z\d@$!%*?&#]{8,}$"
-    if not re.match(password_regex, password):
-        return jsonify({"error": "Password must be at least 8 characters, include uppercase, lowercase, number, and special character"}), 400
-
-    user = User(email=email, is_verified=False)
-    user.set_password(password)
-
-    # ✅ set OTP
-    code = set_user_otp(user)
-
-    db.session.add(user)
-    try:
-        db.session.commit()
-    except Exception as e:
-        db.session.rollback()
-        return jsonify({"error": f"Database error: {str(e)}"}), 500
-
-    # ✅ send email after commit (so user exists)
-    try:
-        send_otp_email(email, code)
-    except Exception as e:
-        # optional: you can delete the user if email fails
-        return jsonify({"error": f"Failed to send OTP email: {str(e)}"}), 500
-
-    return jsonify({
-        "message": "Registration successful. OTP sent to your email.",
-        "user_id": user.id,
-        "email": user.email,
-        "requires_verification": True
-    }), 201
-@app.route("/verify-otp", methods=["POST"])
-def verify_otp():
-    data = request.get_json() or {}
-    email = (data.get("email") or "").strip().lower()
-    code = (data.get("otp") or "").strip()
-
-    if not email or not code:
-        return jsonify({"error": "email and otp required"}), 400
-
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-
-    if user.is_verified:
-        return jsonify({"message": "Already verified"}), 200
-
-    if not verify_user_otp(user, code):
-        return jsonify({"error": "Invalid or expired OTP"}), 400
-
-    user.is_verified = True
-    user.otp_hash = None
-    user.otp_expires_at = None
-    user.otp_sent_at = None
-    db.session.commit()
-
-    token = generate_token(user.id, hours=12)
-    return jsonify({
-        "message": "Email verified successfully",
-        "user_id": user.id,
-        "email": user.email,
-        "token": token
-    }), 200
-
-@app.route("/resend-otp", methods=["POST"])
-def resend_otp():
-    data = request.get_json() or {}
-    email = (data.get("email") or "").strip().lower()
-
-    if not email:
-        return jsonify({"error": "email required"}), 400
-
-    user = User.query.filter_by(email=email).first()
-    if not user:
-        return jsonify({"error": "User not found"}), 404
-
-    if user.is_verified:
-        return jsonify({"message": "Already verified"}), 200
-
-    if user.otp_sent_at:
-        elapsed = (datetime.utcnow() - user.otp_sent_at).total_seconds()
-        if elapsed < OTP_RESEND_COOLDOWN_SECONDS:
-            return jsonify({"error": f"Please wait {int(OTP_RESEND_COOLDOWN_SECONDS - elapsed)} seconds before resending"}), 429
-
-    code = set_user_otp(user)
-    db.session.commit()
-
-    try:
-        send_otp_email(email, code)
-    except Exception as e:
-        return jsonify({"error": f"Failed to resend OTP: {str(e)}"}), 500
-
-    return jsonify({"message": "OTP resent"}), 200
-
-
-@app.route("/login", methods=["POST"])
-def login():
-    data = request.get_json() or {}
-    email = (data.get("email") or "").strip().lower()
-    password = (data.get("password") or "").strip()
-
-    if not email or not password:
-        return jsonify({"error": "email and password required"}), 400
-
-    user = User.query.filter_by(email=email).first()
-    if not user or not user.check_password(password):
-        return jsonify({"error": "Invalid credentials"}), 401
-
-    if not user.is_verified:
-        return jsonify({
-            "error": "Email not verified",
-            "requires_verification": True,
-            "email": user.email
-        }), 403
-
-    token = generate_token(user.id, hours=12)
-    return jsonify({"message": "Login successful", "user_id": user.id, "email": user.email, "token": token}), 200
 
 # =====================================================
 # Module 1: Quiz Manager (CRUD + taking quizzes)
